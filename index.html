@@ -712,7 +712,15 @@ function detectSaveStatFromDesc(descLow){
 
 function buildEffectNotesFromDesc(name,descLow){
   const notes=[];
-  if(descLow.includes('advantage'))notes.push('Grants advantage');
+  const n=name.toLowerCase();
+  // Spell-specific overrides
+  if(n==='guiding bolt'){notes.push('Next attack vs target has ADV');return notes}
+  if(n==='prayer of healing'){notes.push('Heals up to 6 creatures');return notes}
+  if(n==='guidance'){notes.push('+d4 to one ability check');return notes}
+  if(n==='resistance'){notes.push('+d4 to one saving throw');return notes}
+  if(n==='light'){notes.push('20ft bright light, 20ft dim');return notes}
+  // Generic detection
+  if(descLow.includes('advantage'))notes.push('Next attack vs target has ADV');
   if(descLow.includes('can\'t benefit from the invisible')||descLow.includes('can\'t be invisible'))notes.push('Reveals invisible');
   if(descLow.includes('see invisible'))notes.push('See invisible + Ethereal');
   if(descLow.includes('frightened'))notes.push('Frightened');
@@ -733,23 +741,31 @@ function buildEffectNotes(name,mods,descLow){
   const hasAdvAtk=mods.some(m=>m.type==='advantage'&&(m.sub||'').includes('attack'));
   const hasDmg=mods.some(m=>m.type==='damage');
 
-  if(hasBonusAtk&&hasBonusSave)notes.push('+d4 attacks & saves');
-  else if(hasBonusAtk)notes.push('+d4 attacks');
-  else if(hasBonusSave)notes.push('+d4 saves');
-  if(hasBonusAC)notes.push('+2 AC');
-  if(hasBonusCheck)notes.push('+d4 ability check');
-  if(hasBonusHP&&!hasDmg)notes.push('Healing');
-  if(hasAdvAtk)notes.push('Next atk has ADV');
+  // Spell-specific effect notes
+  if(n==='guiding bolt')notes.push('Next attack vs target has ADV');
+  else if(n==='guidance')notes.push('+d4 to one ability check');
+  else if(n==='resistance')notes.push('+d4 to one saving throw');
+  else if(n==='light')notes.push('20ft bright light, 20ft dim');
+  else if(n==='prayer of healing')notes.push('Heals up to 6 creatures');
+  else{
+    if(hasBonusAtk&&hasBonusSave)notes.push('+d4 attacks & saves');
+    else if(hasBonusAtk)notes.push('+d4 attacks');
+    else if(hasBonusSave)notes.push('+d4 saves');
+    if(hasBonusAC)notes.push('+2 AC');
+    if(hasBonusCheck&&!n.includes('guidance'))notes.push('+d4 ability check');
+    if(hasBonusHP&&!hasDmg)notes.push('Healing');
+    if(hasAdvAtk)notes.push('Next atk has ADV');
 
-  // Description-based detection
-  if(descLow.includes('advantage')&&!hasAdvAtk&&!hasBonusAtk)notes.push('Grants advantage');
-  if(descLow.includes('disadvantage')&&!n.includes('bane'))notes.push('Imposes disadvantage');
-  if(descLow.includes('frightened'))notes.push('Frightened');
-  if(descLow.includes('can\'t be invisible')||descLow.includes('cannot be invisible'))notes.push('Reveals invisible');
-  if(descLow.includes('see invisible'))notes.push('See invisible + Ethereal');
-  if(descLow.includes('blinded'))notes.push('Blinded');
-  // Bane specifically subtracts
-  if(n.includes('bane'))notes.push('-d4 attacks & saves');
+    // Description-based detection
+    if(descLow.includes('advantage')&&!hasAdvAtk&&!hasBonusAtk)notes.push('Next attack vs target has ADV');
+    if(descLow.includes('disadvantage')&&!n.includes('bane'))notes.push('Imposes disadvantage');
+    if(descLow.includes('frightened'))notes.push('Frightened');
+    if(descLow.includes('can\'t be invisible')||descLow.includes('cannot be invisible'))notes.push('Reveals invisible');
+    if(descLow.includes('see invisible'))notes.push('See invisible + Ethereal');
+    if(descLow.includes('blinded'))notes.push('Blinded');
+    // Bane specifically subtracts
+    if(n.includes('bane'))notes.push('-d4 attacks & saves');
+  }
 
   return notes;
 }
@@ -1250,10 +1266,13 @@ function useFeature(card){
   if(f.dice){
     const m=f.dice.match(/(\d+)d(\d+)([+\-]\d+)?/);
     if(m){
-      const rolls=rollDice(parseInt(m[1]),parseInt(m[2]));
+      const dCount=parseInt(m[1]),dSides=parseInt(m[2]);
+      const rolls=rollDice(dCount,dSides);
       const bonus=parseInt(m[3]||'0');
-      const total=rolls.reduce((a,b)=>a+b,0)+bonus;
-      const bonusStr=bonus?`+${bonus}`:'';
+      const diceTotal=rolls.reduce((a,b)=>a+b,0);
+      const total=diceTotal+bonus;
+      const diceStr=`${dCount}d${dSides}: ${rolls.join('+')}`;
+      const modStr=bonus?` | ${bonus>0?'+':''}${bonus} mod`:'';
 
       if(descLow.includes('heal')||descLow.includes('regain')){
         parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 ${total} HP</span>`);
@@ -1266,7 +1285,7 @@ function useFeature(card){
       }else{
         parts.push(`<span class="cl-dmg">💥 ${total}</span>`);
       }
-      parts.push(`<span class="cl-detail">[${rolls.join('+')}${bonusStr}]</span>`);
+      parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
     }
   }
 
@@ -1299,10 +1318,42 @@ function useFeature(card){
     }
   }
 
-  // Battle Medic
+  // Battle Medic — expend a Healer's Kit use
   if(name.includes('Battle Medic')){
     const profBonus=c?._profBonus||2;
     parts.push(`<span class="cl-note">Target spends 1 HD + ${profBonus} prof bonus HP</span>`);
+    // Find and decrement Healer's Kit counter
+    const kitCounter=[...document.querySelectorAll('.item-counter')].find(el=>{
+      const card=el.closest('.a');
+      return card&&card.textContent.includes("Healer's Kit");
+    });
+    if(kitCounter){
+      let v=parseInt(kitCounter.textContent);
+      if(v>0){
+        kitCounter.textContent=--v;
+        parts.push(`<span class="cl-detail">(Kit: ${v} left)</span>`);
+        const card=kitCounter.closest('.a');
+        if(card)card.classList.toggle('exhausted',v<=0);
+      }else{
+        parts.push(`<span class="cl-save">⚠️ No Healer's Kit uses left!</span>`);
+      }
+    }
+    // Also try pip-based kits
+    if(!kitCounter){
+      const kitPips=[...document.querySelectorAll('.pip[data-ability]')].filter(p=>{
+        const card=p.closest('.a');
+        return card&&card.textContent.includes("Healer's Kit");
+      });
+      const filledPip=kitPips.filter(p=>p.classList.contains('f')).pop();
+      if(filledPip){
+        filledPip.classList.remove('f');
+        const remaining=kitPips.filter(p=>p.classList.contains('f')).length;
+        parts.push(`<span class="cl-detail">(Kit: ${remaining} left)</span>`);
+      }else if(kitPips.length){
+        parts.push(`<span class="cl-save">⚠️ No Healer's Kit uses left!</span>`);
+      }
+    }
+    sv();
   }
 
   // Features without dice and no special handling
@@ -1456,7 +1507,13 @@ function useMetamagic(name,cost){
 function castCantrip(card){
   const spellName=card.dataset.spellName;
   const sp=window._spellData?.[spellName];
-  if(sp)autoCast(sp,0);
+  if(sp){
+    autoCast(sp,0);
+  }else{
+    // Fallback for cantrips without full spell data
+    const log=document.getElementById('combatLog');
+    if(log)log.innerHTML=`<span class="cl-icon">✨</span> <span class="cl-name">${spellName}</span> <span class="cl-sep">→</span> <span class="cl-note">✓ Cast!</span>`;
+  }
   card.classList.add('cast-flash');
   setTimeout(()=>card.classList.remove('cast-flash'),400);
 }
@@ -1533,32 +1590,46 @@ function autoCast(sp,castLevel){
     const dmg=parseDamage(sp.damage,castLevel,sp.level);
     if(dmg){
       const rolls=rollDice(dmg.count,dmg.sides);
-      const total=rolls.reduce((a,b)=>a+b,0)+dmg.bonus;
-      const bonusStr=dmg.bonus?`+${dmg.bonus}`:'';
+      const diceTotal=rolls.reduce((a,b)=>a+b,0);
+      const total=diceTotal+dmg.bonus;
       const dmgType=detectDmgType(sp);
       parts.push(`<span class="cl-dmg">💥 ${total} ${dmgType}</span>`);
-      parts.push(`<span class="cl-detail">[${rolls.join('+')}${bonusStr}]</span>`);
+      const diceStr=`${dmg.count}d${dmg.sides}: ${rolls.join('+')}`;
+      const modStr=dmg.bonus?` | +${dmg.bonus} mod`:'';
+      parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
       if(isSave)parts.push(`<span class="cl-detail">(half on save)</span>`);
     }
   }
 
-  // HEALING
-  if(isHealing&&!hasDamage){
+  // HEALING (detect from healDice, damage field, or description for spells like Prayer of Healing)
+  const healDetected=isHealing||(!hasDamage&&!isAttack&&sp.description&&sp.description.toLowerCase().match(/regain.*\d+d\d+|heal.*\d+d\d+|\d+d\d+.*hit point/));
+  if(healDetected&&!hasDamage){
     const healStr=sp.healDice||(sp.damage);
-    const heal=parseDamage(healStr,castLevel,sp.level);
+    // Try to extract heal dice from description if no explicit field
+    let heal=parseDamage(healStr,castLevel,sp.level);
+    if(!heal&&sp.description){
+      const descHealMatch=sp.description.match(/(\d+)d(\d+)\s*\+\s*(\d+)/i)||sp.description.match(/(\d+)d(\d+)/i);
+      if(descHealMatch){
+        const spellMod=c?.spellMod||0;
+        heal={count:parseInt(descHealMatch[1]),sides:parseInt(descHealMatch[2]),bonus:descHealMatch[3]?parseInt(descHealMatch[3]):spellMod};
+        if(castLevel>sp.level&&sp.level>0)heal.count+=(castLevel-sp.level);
+      }
+    }
     if(heal){
       const rolls=rollDice(heal.count,heal.sides);
-      const total=rolls.reduce((a,b)=>a+b,0)+heal.bonus;
-      const bonusStr=heal.bonus?`+${heal.bonus}`:'';
+      const diceTotal=rolls.reduce((a,b)=>a+b,0);
+      const total=diceTotal+heal.bonus;
       parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 ${total} HP healed</span>`);
-      parts.push(`<span class="cl-detail">[${rolls.join('+')}${bonusStr}]</span>`);
+      const diceStr=`${heal.count}d${heal.sides}: ${rolls.join('+')}`;
+      const modStr=heal.bonus?` | +${heal.bonus} mod`:'';
+      parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
     }else{
       parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 Healing</span>`);
     }
   }
 
-  // BUFF/UTILITY (no damage, no attack, no save, no healing)
-  if(!hasDamage&&!isAttack&&!isSave&&!isHealing){
+  // BUFF/UTILITY (no damage, no attack, no save, no healing shown)
+  if(!hasDamage&&!isAttack&&!isSave&&!healDetected){
     parts.push(`<span class="cl-note">✓ Cast!</span>`);
   }
 
