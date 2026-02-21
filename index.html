@@ -130,8 +130,7 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .eff .eff-x:hover{opacity:1}
 .eff .eff-dur{font-weight:400;opacity:.7;font-size:10px}
 .eff{position:relative}
-.eff .eff-tip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#0d1117;border:1px solid #3a3a5a;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:400;color:var(--txt);white-space:normal;width:240px;box-shadow:0 4px 12px rgba(0,0,0,.6);z-index:200;line-height:1.4;pointer-events:none;text-align:left}
-.eff:hover .eff-tip{display:block}
+.eff .eff-tip{display:none;position:fixed;background:#0d1117;border:1px solid #3a3a5a;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:400;color:var(--txt);white-space:normal;width:240px;max-width:90vw;box-shadow:0 4px 12px rgba(0,0,0,.6);z-index:200;line-height:1.4;pointer-events:none;text-align:left}
 
 /* Combat log strip */
 .combat-log{background:#0d1117;border:1px solid var(--brd);border-radius:6px;padding:6px 10px;margin-bottom:4px;min-height:32px;display:flex;align-items:center;gap:8px;overflow-x:auto;white-space:nowrap}
@@ -815,12 +814,13 @@ function resolveTemplates(text, charData){
     if(expr==='scalevalue'){
       return''+(c._scaleValues?.['Channel Divinity']||2);
     }
-    // {{classlevel}} 
-    if(expr==='classlevel')return''+c._level;
+    // {{classlevel}} or {{classlevel#signed}} or {{classlevel#unsigned}}
+    if(expr==='classlevel'||expr==='classlevel#unsigned')return''+c._level;
+    if(expr==='classlevel#signed')return(c._level>=0?'+':'')+c._level;
     // Complex expressions like {{1+(classlevel/7)@rounddown...}} — resolve to approximate
     if(expr.includes('classlevel')){
       try{
-        let e=expr.replace(/,max:\d+/g,'').replace(/@rounddown/g,'');
+        let e=expr.replace(/,max:\d+/g,'').replace(/@rounddown/g,'').replace(/#(un)?signed/g,'');
         e=e.replace(/classlevel/g,c._level);
         // Simple eval of arithmetic
         const result=Math.floor(Function('"use strict";return ('+e+')')());
@@ -1970,6 +1970,32 @@ function initTooltips(){
     });
     card.addEventListener('mouseleave',()=>{tt.classList.remove('show')});
   });
+  // Effect chip tooltips — use event delegation on effects bar
+  const effBar=document.getElementById('effectsBar');
+  if(effBar){
+    effBar.addEventListener('mouseenter',e=>{
+      const eff=e.target.closest('.eff');
+      if(!eff)return;
+      const tip=eff.querySelector('.eff-tip');
+      if(!tip)return;
+      tip.style.display='block';
+      const r=eff.getBoundingClientRect();
+      // Try above first
+      tip.style.left=r.left+'px';
+      tip.style.top=(r.top-tip.offsetHeight-6)+'px';
+      // Clamp to viewport
+      const tr=tip.getBoundingClientRect();
+      if(tr.top<0)tip.style.top=(r.bottom+6)+'px';
+      if(tr.left<0)tip.style.left='4px';
+      if(tr.right>window.innerWidth)tip.style.left=(window.innerWidth-tr.width-4)+'px';
+    },true);
+    effBar.addEventListener('mouseleave',e=>{
+      const eff=e.target.closest('.eff');
+      if(!eff)return;
+      const tip=eff.querySelector('.eff-tip');
+      if(tip)tip.style.display='none';
+    },true);
+  }
 }
 
 // Save/load state keyed by character name
