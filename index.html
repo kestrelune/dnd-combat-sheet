@@ -257,27 +257,28 @@ async function parseChar(c){
   const maxHP=baseHP+bonusHP+(stats[2].mod*level);
   const currentHP=maxHP-removedHP;
 
-  // AC (simplified — base 10+DEX, check for armor/shield in modifiers)
+  // AC calculation
   let ac=10+stats[1].mod;
+  let hasArmor=false;
+  let shieldBonus=0;
   // Look for armor items
   (c.inventory||[]).forEach(item=>{
     if(!item.equipped)return;
     const def=item.definition;
-    if(!def)return;
-    if(def.armorClass){
-      const aType=def.armorTypeId;
-      if(aType===1)ac=def.armorClass+stats[1].mod; // light
-      else if(aType===2)ac=def.armorClass+Math.min(stats[1].mod,2); // medium
-      else if(aType===3)ac=def.armorClass; // heavy
-      else if(aType===4)ac+=2; // shield
-    }
+    if(!def||!def.armorClass)return;
+    const aType=def.armorTypeId;
+    if(aType===1){ac=def.armorClass+stats[1].mod;hasArmor=true} // light
+    else if(aType===2){ac=def.armorClass+Math.min(stats[1].mod,2);hasArmor=true} // medium
+    else if(aType===3){ac=def.armorClass;hasArmor=true} // heavy
+    else if(aType===4){shieldBonus=2} // shield
   });
-  // Second pass for shield
-  (c.inventory||[]).forEach(item=>{
-    if(!item.equipped)return;
-    const def=item.definition;
-    if(def&&def.armorTypeId===4)ac+=2;
-  });
+  ac+=shieldBonus;
+  // Unarmored Defense (only if no armor equipped)
+  if(!hasArmor){
+    const isMonk=className==='Monk';
+    if(isBarbarian){ac=Math.max(ac,10+stats[1].mod+stats[2].mod+shieldBonus)} // DEX + CON
+    if(isMonk){ac=Math.max(ac,10+stats[1].mod+stats[4].mod)} // DEX + WIS, no shield
+  }
 
   // Save proficiencies
   const saveProficiencies=new Set();
@@ -521,6 +522,24 @@ async function parseChar(c){
     if(f.levelScale?.fixedValue!=null)scaleValues[f.definition?.name||'']=f.levelScale.fixedValue;
   });
 
+  // Monk: add unarmed strike as weapon
+  if(className==='Monk'){
+    const maDie=level>=17?12:level>=11?10:level>=5?8:6;
+    const dexMod=stats[1].mod;
+    weapons.unshift({
+      name:'Unarmed Strike',
+      equipped:true,
+      melee:true,ranged:false,thrown:false,
+      atkBonus:dexMod+profBonus,
+      dmgDice:`1d${maDie}`,
+      dmgBonus:dexMod,
+      dmgType:'bludgeoning',
+      range:5,longRange:5,
+      properties:['Martial Arts'],
+      magic:false,versatileDmg:null,
+    });
+  }
+
   // Extra Attack count
   const extraAttacks=scaleValues['Extra Attack']||1;
 
@@ -532,6 +551,18 @@ async function parseChar(c){
 
   // Rage (Barbarian)
   const rageDamage=isBarbarian?(level>=16?4:level>=9?3:2):0;
+
+  // Monk
+  const isMonk=className==='Monk';
+  const kiPoints=isMonk?level:0; // Ki/Focus = monk level
+  const martialArtsDie=isMonk?(level>=17?12:level>=11?10:level>=5?8:6):0;
+
+  // Paladin Lay on Hands
+  const layOnHandsPool=isPaladin?level*5:0;
+
+  // Wizard Arcane Recovery
+  const isWizard=className==='Wizard';
+  const arcaneRecoverySlots=isWizard?Math.ceil(level/2):0;
 
   // Items with limited uses (Healer's Kit, magic items with charges)
   const trackedItems=[];
@@ -596,7 +627,8 @@ async function parseChar(c){
     hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
     weapons,extraAttacks,
     sneakAttackDice,canSmite,rageDamage,
-    isKnownCaster,isWarlock,isRogue,isPaladin,isBarbarian,
+    isKnownCaster,isWarlock,isRogue,isPaladin,isBarbarian,isMonk,isWizard,
+    kiPoints,martialArtsDie,layOnHandsPool,arcaneRecoverySlots,
     spellDC,spellAtk,spellMod,
     slotsByLevel,spells,features,trackedItems,
     // For template resolution
@@ -835,7 +867,26 @@ async function buildSheet(rawChar){
     html+=`<div class="sp${filled?' f':''}" data-hd="1" onclick="tSP(this)" style="border-color:var(--gold)${filled?';background:var(--gold)':''}"></div>`;
   }
   html+=`<span class="m" style="margin-left:4px">d${c.hitDice.die}+${c.stats[2].mod>=0?c.stats[2].mod:c.stats[2].mod}</span>`;
-  html+=`</div></div>`;
+  html+=`</div>`;
+
+  // CLASS RESOURCES
+  // Ki/Focus Points (Monk)
+  if(c.kiPoints){
+    html+=`<div class="slots" style="margin-left:8px"><span class="lbl">Ki:</span>`;
+    for(let i=0;i<c.kiPoints;i++){
+      html+=`<div class="pip sr f" data-ability="ki" onclick="event.stopPropagation();tP(this)" style="width:7px;height:7px"></div>`;
+    }
+    html+=`</div>`;
+  }
+  // Lay on Hands (Paladin) — pool counter
+  if(c.layOnHandsPool){
+    html+=`<div class="slots" style="margin-left:8px"><span class="lbl">LoH:</span>`;
+    html+=`<button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();decCounter(this)">−</button>`;
+    html+=`<span class="item-counter" data-max="${c.layOnHandsPool}" data-item="loh" style="min-width:24px;text-align:center;font-weight:bold">${c.layOnHandsPool}</span>`;
+    html+=`<button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();incCounter(this)">+</button>`;
+    html+=`<span class="m">HP pool</span></div>`;
+  }
+  html+=`</div>`;
 
   // GRID
   html+=`<div class="grid">`;
@@ -1159,9 +1210,33 @@ function useFeature(card){
     }
   }
 
+  // Maneuvers (Battle Master) — spend superiority die
+  if(name.includes('Maneuver:')){
+    // Find and spend a superiority die pip
+    const supPips=[...document.querySelectorAll('.pip[data-ability="Superior"].f,.pip[data-ability="Superio"].f')];
+    if(supPips.length){
+      supPips[supPips.length-1].classList.remove('f');
+      const supRolls=rollDice(1,8); // superiority die
+      parts.push(`<span class="cl-dmg">+🎯${supRolls[0]}</span>`);
+      parts.push(`<span class="cl-detail">[d8]</span>`);
+    }else{
+      parts.push(`<span class="cl-save">⚠️ No superiority dice!</span>`);
+    }
+    updateExhausted();
+  }
+
   // Warding Flare
   if(name.includes('Warding Flare')){
     parts.push(`<span class="cl-save">⚠️ Attacker has DISADVANTAGE</span>`);
+  }
+
+  // Second Wind (Fighter) — auto-heal
+  if(name.includes('Second Wind')&&!name.includes('Shift')&&f.dice){
+    const healTotal=parseInt(parts.find(p=>p.includes('💚'))?.match(/💚 (\d+)/)?.[1]||0);
+    if(healTotal>0){
+      window._hp=Math.min(window._maxHp,window._hp+healTotal);
+      upHP();sv();
+    }
   }
 
   // Battle Medic
@@ -1565,6 +1640,19 @@ function shortRest(){
   document.querySelectorAll('.pip.sr').forEach(p=>p.classList.add('f'));
   // Warlock Pact Magic: all slots recover on short rest
   document.querySelectorAll('.sp.sr-slot').forEach(s=>{s.classList.add('f');if(window._char?.isWarlock)s.style.background='var(--sr)'});
+  // Ki points recover on short rest (all)
+  document.querySelectorAll('.pip[data-ability="ki"]').forEach(p=>p.classList.add('f'));
+  // Wizard Arcane Recovery: recover some spell slots (once per long rest, on SR)
+  if(window._char?.isWizard&&window._char?.arcaneRecoverySlots){
+    const slotsToRecover=window._char.arcaneRecoverySlots;
+    let recovered=0;
+    for(let lvl=1;lvl<=5&&recovered<slotsToRecover;lvl++){
+      document.querySelectorAll(`.sp[data-lvl="${lvl}"]:not(.f)`).forEach(s=>{
+        if(recovered<slotsToRecover){s.classList.add('f');recovered++}
+      });
+    }
+    if(recovered)document.getElementById('dR').textContent+=` +${recovered} slots (Arcane Recovery)`;
+  }
   // Count available hit dice and offer to spend them
   const hdSlots=[...document.querySelectorAll('.sp[data-hd].f')];
   if(hdSlots.length>0&&window._hp<window._maxHp){
