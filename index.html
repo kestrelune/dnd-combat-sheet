@@ -309,7 +309,49 @@ function parseChar(c){
     else features.actions.push(feat);
   });
 
-  // Race features (passives)
+  // Scale values (for template resolution)
+  const scaleValues={};
+  (cls?.classFeatures||[]).forEach(f=>{
+    if(f.levelScale?.fixedValue!=null)scaleValues[f.definition?.name||'']=f.levelScale.fixedValue;
+  });
+
+  // Items with limited uses (Healer's Kit, magic items with charges)
+  const trackedItems=[];
+  (c.inventory||[]).forEach(item=>{
+    const def=item.definition;
+    if(!def||!item.equipped&&!item.quantity)return;
+    const lu=def.limitedUse;
+    if(lu){
+      trackedItems.push({
+        name:def.name,
+        maxUses:lu.maxUses||0,
+        used:lu.numberUsed||0,
+        resetType:lu.resetType, // 1=short, 2=long, null=never
+        description:stripHTML(def.description||''),
+      });
+    }
+    // Consumables with quantity (like Healer's Kit = 10 uses)
+    if(def.isConsumable&&item.quantity>0){
+      trackedItems.push({
+        name:def.name,
+        maxUses:item.quantity,
+        used:0,
+        resetType:null,
+        description:stripHTML(def.description||''),
+      });
+    }
+    // Healer's Kit special case — not isConsumable but has uses
+    if(def.name==="Healer's Kit"&&!def.limitedUse){
+      trackedItems.push({
+        name:"Healer's Kit",
+        maxUses:10,
+        used:0,
+        resetType:null,
+        description:'10 uses. Battle Medic: expend 1 use, target spends HD + prof bonus HP.',
+      });
+    }
+  });
+
   const raceName=c.race?.fullName||c.race?.baseName||'Unknown';
 
   return{
@@ -321,7 +363,9 @@ function parseChar(c){
     speed:c.race?.weightSpeeds?.normal?.walk||30,
     saveProficiencies,skillProfs,
     spellDC,spellAtk,spellMod,
-    slotsByLevel,spells,features,
+    slotsByLevel,spells,features,trackedItems,
+    // For template resolution
+    _stats:stats,_profBonus:profBonus,_level:level,_scaleValues:scaleValues,
   };
 }
 
@@ -353,6 +397,49 @@ function extractUpcast(def){
     }
   }
   return null;
+}
+
+// Resolve D&D Beyond template placeholders like {{modifier:wis}}, {{scalevalue}}, {{proficiency#signed}}
+function resolveTemplates(text, charData){
+  if(!text||!charData)return text;
+  const c=charData;
+  return text.replace(/\{\{([^}]+)\}\}/g,(match,expr)=>{
+    expr=expr.trim().toLowerCase();
+    // {{modifier:stat}}
+    const modMatch=expr.match(/^modifier:(\w+)$/);
+    if(modMatch){
+      const si=STAT_NAMES.findIndex(n=>n.toLowerCase()===modMatch[1]);
+      if(si>=0){const m=c._stats[si].mod;return(m>=0?'+':'')+m}
+    }
+    // {{savedc:stat}}
+    const dcMatch=expr.match(/^savedc:(\w+)$/);
+    if(dcMatch){
+      const si=STAT_NAMES.findIndex(n=>n.toLowerCase()===dcMatch[1]);
+      if(si>=0)return''+(8+c._profBonus+c._stats[si].mod);
+    }
+    // {{proficiency}} or {{proficiency#signed}}
+    if(expr.startsWith('proficiency')){
+      const v=c._profBonus;
+      return expr.includes('signed')?(v>=0?'+':'')+v:''+v;
+    }
+    // {{scalevalue}}
+    if(expr==='scalevalue'){
+      return''+(c._scaleValues?.['Channel Divinity']||2);
+    }
+    // {{classlevel}} 
+    if(expr==='classlevel')return''+c._level;
+    // Complex expressions like {{1+(classlevel/7)@rounddown...}} — resolve to approximate
+    if(expr.includes('classlevel')){
+      try{
+        let e=expr.replace(/,max:\d+/g,'').replace(/@rounddown/g,'');
+        e=e.replace(/classlevel/g,c._level);
+        // Simple eval of arithmetic
+        const result=Math.floor(Function('"use strict";return ('+e+')')());
+        return''+result;
+      }catch(ex){return match}
+    }
+    return match; // unresolved
+  });
 }
 
 function spellIcon(spell){
@@ -521,6 +608,38 @@ function buildSheet(rawChar){
   html+=`<button class="db" onclick="rl(8,2,0)">2d8</button>`;
   html+=`<button class="db" onclick="rl(10,2,0)">2d10</button>`;
   html+=`</div>`;
+
+  // Tracked items (Healer's Kit, magic items with charges)
+  if(c.trackedItems.length){
+    html+=`<div class="sh" style="margin-top:6px">🎒 Items & Charges</div>`;
+    html+=`<div class="card-grid">`;
+    c.trackedItems.forEach((item,idx)=>{
+      const pips=[];
+      const isSR=item.resetType===1;
+      const isLR=item.resetType===2;
+      const abilityId='item'+idx;
+      for(let i=0;i<item.maxUses;i++){
+        const filled=i>=item.used;
+        pips.push(`<div class="pip${isSR?' sr':''}${filled?' f':''}" data-ability="${abilityId}" onclick="event.stopPropagation();tP(this)"></div>`);
+      }
+      const resetLabel=isSR?'SR':isLR?'LR':'—';
+      // If too many pips (>10), show as counter instead
+      if(item.maxUses>10){
+        html+=`<div class="a wide">
+          <div class="top"><span class="ico">🎒</span><span class="n">${item.name}</span><span class="m" style="margin-left:auto">${item.maxUses} uses · ${resetLabel}</span></div>
+          <div class="bot"><span class="m">Counter: </span><button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();decCounter(this)">−</button><span class="item-counter" data-max="${item.maxUses}" data-item="${abilityId}">${item.maxUses-item.used}</span><button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();incCounter(this)">+</button></div>
+          <div class="tt"><h3>🎒 ${item.name}</h3><div class="mt">${item.maxUses} uses · Resets: ${resetLabel}</div><p>${item.description.substring(0,300)}</p></div>
+        </div>`;
+      }else{
+        html+=`<div class="a wide">
+          <div class="top"><span class="ico">🎒</span><span class="n">${item.name}</span><span class="m" style="margin-left:auto">${resetLabel}</span><div class="pips">${pips.join('')}</div></div>
+          <div class="tt"><h3>🎒 ${item.name}</h3><div class="mt">${item.maxUses} uses · Resets: ${isSR?'Short Rest':isLR?'Long Rest':'Manual'}</div><p>${item.description.substring(0,300)}</p></div>
+        </div>`;
+      }
+    });
+    html+=`</div>`;
+  }
+
   html+=`</div>`;
 
   html+=`</div>`; // grid
@@ -558,7 +677,8 @@ function spellCard(sp,c){
   const ttParts=[];
   ttParts.push(`<h3>${ico} ${sp.name}</h3>`);
   ttParts.push(`<div class="mt">${isCantrip?'Cantrip':ordinal(sp.level)} · ${sp.duration}${sp.range?' · '+sp.range:''}${sp.saveDC?' · '+sp.saveDC:''}${sp.attackRoll?' · '+sp.attackRoll:''}</div>`);
-  ttParts.push(`<p>${sp.description.substring(0,300)}${sp.description.length>300?'...':''}</p>`);
+  const desc=resolveTemplates(sp.description,window._char);
+  ttParts.push(`<p>${desc.substring(0,300)}${desc.length>300?'...':''}</p>`);
   if(sp.upcastInfo)ttParts.push(`<p><b>Upcast:</b> ${sp.upcastInfo.perLevel} ${sp.upcastInfo.type} per level above ${ordinal(sp.level)}</p>`);
 
   return `<div class="a${isCantrip?'':' castable'}" ${isCantrip?'':`data-min-lvl="${sp.level}" onclick="castSpell(this)"`}>
@@ -590,7 +710,7 @@ function featureCard(f){
   return `<div class="a${f.limitedUse?' wide':''}">
     <div class="top"><span class="ico">${f.dice?'⚔️':'✦'}</span><span class="n">${f.name}</span>${pips.length?'<div class="pips">'+pips.join('')+'</div>':''}</div>
     ${meta.length?`<div class="bot"><span class="m">${meta.join(' · ')}</span></div>`:''}
-    <div class="tt"><h3>${f.name}</h3><div class="mt">${f.activation}${f.limitedUse?' · '+f.limitedUse.max+'/'+(f.limitedUse.resetType===1?'Short':'Long')+' Rest':''}</div><p>${(f.snippet||f.description).substring(0,400)}</p></div>
+    <div class="tt"><h3>${f.name}</h3><div class="mt">${f.activation}${f.limitedUse?' · '+f.limitedUse.max+'/'+(f.limitedUse.resetType===1?'Short':'Long')+' Rest':''}</div><p>${resolveTemplates((f.snippet||f.description),window._char).substring(0,400)}</p></div>
   </div>`;
 }
 
@@ -672,6 +792,22 @@ function updateExhausted(){
   }
 }
 
+function decCounter(btn){
+  const span=btn.parentElement.querySelector('.item-counter');
+  let v=parseInt(span.textContent);
+  if(v>0){span.textContent=--v;sv()}
+  const card=btn.closest('.a');
+  card.classList.toggle('exhausted',v<=0);
+}
+function incCounter(btn){
+  const span=btn.parentElement.querySelector('.item-counter');
+  const max=parseInt(span.dataset.max);
+  let v=parseInt(span.textContent);
+  if(v<max){span.textContent=++v;sv()}
+  const card=btn.closest('.a');
+  card.classList.toggle('exhausted',v<=0);
+}
+
 function shortRest(){
   document.querySelectorAll('.pip.sr').forEach(p=>p.classList.add('f'));
   document.getElementById('dR').textContent='⏳ Short Rest!';
@@ -681,6 +817,7 @@ function shortRest(){
 function longRest(){
   window._hp=window._maxHp;upHP();
   document.querySelectorAll('.sp,.pip').forEach(p=>p.classList.add('f'));
+  document.querySelectorAll('.item-counter').forEach(c=>{c.textContent=c.dataset.max;const card=c.closest('.a');if(card)card.classList.remove('exhausted')});
   document.getElementById('dR').textContent='🌙 Full Restore!';
   document.getElementById('dR').style.color='#0c8';
   sv();updateExhausted();
@@ -716,7 +853,8 @@ function sv(){
   const key='dndcs_'+window._char?.name;
   const s=[...document.querySelectorAll('.sp')].map(p=>p.classList.contains('f'));
   const p=[...document.querySelectorAll('.pip')].map(p=>p.classList.contains('f'));
-  localStorage.setItem(key,JSON.stringify({hp:window._hp,s,p}));
+  const counters=[...document.querySelectorAll('.item-counter')].map(c=>parseInt(c.textContent));
+  localStorage.setItem(key,JSON.stringify({hp:window._hp,s,p,counters}));
 }
 function ld(){
   const key='dndcs_'+window._char?.name;
@@ -727,6 +865,7 @@ function ld(){
     if(d.hp!==undefined)window._hp=d.hp;
     if(d.s)document.querySelectorAll('.sp').forEach((p,i)=>{if(d.s[i]!==undefined)p.classList.toggle('f',d.s[i])});
     if(d.p)document.querySelectorAll('.pip').forEach((p,i)=>{if(d.p[i]!==undefined)p.classList.toggle('f',d.p[i])});
+    if(d.counters)document.querySelectorAll('.item-counter').forEach((c,i)=>{if(d.counters[i]!==undefined){c.textContent=d.counters[i];const card=c.closest('.a');if(card)card.classList.toggle('exhausted',d.counters[i]<=0)}});
   }catch(e){}
 }
 
