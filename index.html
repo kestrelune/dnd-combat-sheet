@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D&D Combat Sheet</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#1a1a2e;--card:#16213e;--ch:#1a2744;--acc:#e94560;--gold:#ffd700;--heal:#00cc88;--blue:#4488ff;--txt:#e0e0e0;--dim:#888;--brd:#2a2a4a;--sr:#4466aa;--lr-c:#44aa66}
+body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;padding:6px;-webkit-user-select:none;user-select:none}
+
+/* LOADER */
+#loader{max-width:600px;margin:80px auto;text-align:center}
+#loader h1{color:var(--gold);font-size:24px;margin-bottom:16px}
+#loader p{color:var(--dim);margin-bottom:12px;font-size:14px}
+#loader input{width:100%;padding:10px 14px;border-radius:6px;border:1px solid var(--brd);background:var(--card);color:var(--txt);font-size:15px;margin-bottom:8px}
+#loader input:focus{outline:none;border-color:var(--gold)}
+#loader button{padding:10px 24px;border-radius:6px;border:none;background:var(--acc);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+#loader button:hover{background:#d13a52}
+#loader .err{color:var(--acc);font-size:12px;margin-top:8px}
+#loader .loading{color:var(--gold);font-size:13px;margin-top:8px}
+
+/* SHEET (hidden until loaded) */
+#sheet{display:none}
+
+.hdr{display:flex;align-items:center;gap:12px;padding:4px 8px;border-bottom:1px solid var(--brd);margin-bottom:4px;flex-wrap:wrap}
+.hdr h1{font-size:17px;color:var(--gold)}
+.hdr .sub{font-size:11px;color:var(--dim);font-style:italic}
+.hdr .cls{font-size:12px;color:var(--acc);margin-left:auto}
+.hdr .reload{background:none;border:1px solid var(--brd);color:var(--dim);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px}
+.hdr .reload:hover{color:var(--txt);border-color:var(--txt)}
+
+.hp{display:flex;align-items:center;gap:5px;background:#111;border-radius:5px;padding:3px 6px;margin-bottom:4px}
+.hp .bar{flex:1;height:14px;background:#333;border-radius:7px;overflow:hidden}
+.hp .fill{height:100%;border-radius:7px;transition:width .3s}
+.hp .val{font-size:16px;font-weight:bold;min-width:48px;text-align:right}
+.hp .b{width:22px;height:22px;border-radius:50%;border:1px solid var(--brd);background:var(--card);color:var(--txt);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.hp .b:active{background:var(--acc)}
+
+.stats{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:4px}
+.st{background:var(--card);border-radius:3px;padding:2px 6px;text-align:center;flex:1;min-width:44px}
+.st .l{font-size:9px;color:var(--dim);text-transform:uppercase}
+.st .v{font-size:15px;font-weight:bold}
+.st.prof{background:#2a2a4a}
+.st.prof .l{color:var(--gold)}
+
+.slots-row{display:flex;gap:10px;margin-bottom:4px;align-items:center;flex-wrap:wrap}
+.slots{display:flex;gap:2px;align-items:center}
+.slots .lbl{font-size:11px;color:var(--dim);min-width:26px}
+.sp{width:14px;height:14px;border-radius:3px;border:2px solid #aa66ff;cursor:pointer}
+.sp.f{background:#aa66ff}
+
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:550px){.grid{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:2px}
+
+.sh{font-size:11px;text-transform:uppercase;letter-spacing:1px;padding:2px 0;border-bottom:1px solid var(--brd);margin-bottom:1px;display:flex;align-items:center;gap:4px}
+.sh .tag{font-size:8px;padding:1px 4px;border-radius:3px;font-weight:bold}
+.sh .t-act{background:#e94560;color:#fff}
+.sh .t-ba{background:#22ccff;color:#000}
+.sh .t-react{background:#ff44aa;color:#fff}
+.sh .t-free{background:#888;color:#fff}
+
+.card-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+.card-grid .a.wide{grid-column:1/-1}
+
+.a{background:var(--card);border-radius:3px;padding:2px 4px;cursor:default;display:flex;flex-direction:column;justify-content:center;min-height:36px;transition:background .1s;position:relative;border:1px solid transparent}
+.a:hover{background:var(--ch);border-color:#3a3a5a}
+.a .top{display:flex;align-items:center;gap:3px}
+.a .ico{font-size:11px;flex-shrink:0}
+.a .n{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.a .bot{display:flex;align-items:center;gap:3px;margin-top:1px;flex-wrap:wrap}
+.a .m{font-size:12px;color:var(--dim);white-space:nowrap}
+.a .slot{font-size:9px;padding:0px 3px;border-radius:2px;background:#333;color:#ccc;white-space:nowrap}
+.a .conc{font-size:9px;padding:0px 3px;background:#553300;color:#ffaa00;border-radius:2px;white-space:nowrap}
+
+.a.castable{cursor:pointer}
+.a.castable:hover{border-color:#aa66ff55}
+.a.exhausted{opacity:0.35}
+.a.castable.exhausted{pointer-events:none}
+
+.lvl-pick{display:none;position:absolute;z-index:150;left:0;right:0;top:100%;background:#0d1117;border:1px solid #aa66ff;border-radius:0 0 6px 6px;padding:4px 6px;box-shadow:0 4px 12px rgba(0,0,0,.6)}
+.lvl-pick.show{display:flex;gap:4px;align-items:center}
+.lvl-pick .lp-label{font-size:11px;color:var(--dim)}
+.lvl-pick .lp-btn{padding:3px 8px;border-radius:3px;border:1px solid #aa66ff;background:transparent;color:#aa66ff;font-size:11px;cursor:pointer;font-weight:600}
+.lvl-pick .lp-btn:hover{background:#aa66ff33}
+.cast-flash{animation:cflash .4s ease}
+@keyframes cflash{0%{background:#aa66ff44}100%{background:var(--card)}}
+
+.pips{display:flex;gap:2px;margin-left:auto}
+.pip{width:9px;height:9px;border-radius:50%;border:2px solid var(--dim);cursor:pointer}
+.pip.f{border-color:var(--lr-c);background:var(--lr-c)}
+.pip.sr.f{border-color:var(--sr);background:var(--sr)}
+.pip.sr{border-color:var(--sr)}
+
+.tt{display:none;position:fixed;z-index:200;min-width:260px;max-width:360px;background:#0d1117;border:1px solid #3a3a5a;border-radius:6px;padding:8px 10px;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.6)}
+.tt.show{display:block}
+.a.picker-open .tt{display:none!important}
+.tt h3{font-size:14px;color:var(--gold);margin-bottom:2px}
+.tt .mt{font-size:11px;color:var(--acc);margin-bottom:4px}
+.tt p{font-size:13px;line-height:1.4;margin-bottom:3px;color:var(--txt)}
+
+.sh2{font-size:10px;color:var(--dim);padding:1px 0;margin-top:1px;grid-column:1/-1}
+
+.dr{text-align:center;font-size:20px;font-weight:bold;color:var(--gold);min-height:24px;line-height:24px}
+.dice{display:flex;gap:2px;flex-wrap:wrap}
+.db{padding:3px 6px;background:var(--card);border:1px solid var(--brd);border-radius:3px;color:var(--txt);font-size:12px;cursor:pointer}
+.db:active{background:var(--acc)}
+
+.rest-btns{display:flex;gap:4px;margin-top:4px}
+.rbtn{flex:1;padding:5px;border-radius:5px;font-size:13px;cursor:pointer;text-align:center;border:none}
+.rbtn.sr-btn{background:#1a2a3a;border:1px solid var(--sr);color:var(--sr)}
+.rbtn.sr-btn:active{background:#2a3a5a}
+.rbtn.lr-btn{background:#1a3a2a;border:1px solid var(--lr-c);color:var(--lr-c)}
+.rbtn.lr-btn:active{background:#2a5a3a}
+
+.skills-line{font-size:12px;color:var(--dim);line-height:1.8}
+.skills-line b{color:var(--txt)}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <h1>⚔️ D&D Combat Sheet</h1>
+  <p>Paste a public D&D Beyond character URL to generate a combat-optimized sheet.</p>
+  <input id="urlInput" type="text" placeholder="https://www.dndbeyond.com/characters/143800594" autofocus>
+  <button onclick="loadChar()">Generate Sheet</button>
+  <div id="loadMsg"></div>
+</div>
+
+<div id="sheet"></div>
+
+<script>
+// ─── CONSTANTS ───
+const STAT_NAMES=['STR','DEX','CON','INT','WIS','CHA'];
+const STAT_IDS={1:'STR',2:'DEX',3:'CON',4:'INT',5:'WIS',6:'CHA'};
+const ACTIVATION_TYPES={1:'Action',3:'Bonus Action',4:'Reaction',5:'Free',6:'Minute',7:'Hour'};
+
+// ─── ENTRY ───
+async function loadChar(){
+  const input=document.getElementById('urlInput').value.trim();
+  const msg=document.getElementById('loadMsg');
+  const match=input.match(/characters\/(\d+)/);
+  if(!match){msg.innerHTML='<div class="err">Invalid URL. Need: dndbeyond.com/characters/ID</div>';return}
+  const id=match[1];
+  msg.innerHTML='<div class="loading">Loading character...</div>';
+  try{
+    const r=await fetch(`https://character-service.dndbeyond.com/character/v5/character/${id}`);
+    if(!r.ok)throw new Error(`HTTP ${r.status} — is the character public?`);
+    const json=await r.json();
+    const char=json.data||json;
+    buildSheet(char);
+  }catch(e){msg.innerHTML=`<div class="err">${e.message}</div>`}
+}
+
+// Allow enter key
+document.getElementById('urlInput').addEventListener('keydown',e=>{if(e.key==='Enter')loadChar()});
+
+// ─── PARSER ───
+function parseChar(c){
+  // Base stats
+  const baseStats=[];
+  (c.stats||[]).forEach(s=>{baseStats[s.id]=s.value||10});
+  // Bonus stats from modifiers
+  const bonusStats=[0,0,0,0,0,0,0];
+  const allMods=[...(c.modifiers?.race||[]),...(c.modifiers?.class||[]),...(c.modifiers?.background||[]),...(c.modifiers?.feat||[]),...(c.modifiers?.item||[]),...(c.modifiers?.condition||[])];
+  allMods.forEach(m=>{
+    if(m.type==='bonus'&&m.subType&&m.subType.endsWith('-score')&&m.value){
+      const idx=STAT_NAMES.findIndex(n=>m.subType.startsWith(n.toLowerCase()));
+      if(idx>=0)bonusStats[idx+1]+=m.value;
+    }
+  });
+  // Override stats
+  (c.overrideStats||[]).forEach(s=>{if(s.value!==null)baseStats[s.id]=s.value});
+  // Bonus from characterValues (ASI etc)
+  (c.bonusStats||[]).forEach(s=>{if(s.value)bonusStats[s.id]+=s.value});
+
+  const stats=[];
+  for(let i=1;i<=6;i++){
+    const total=(baseStats[i]||10)+bonusStats[i];
+    stats.push({name:STAT_NAMES[i-1],score:total,mod:Math.floor((total-10)/2)});
+  }
+
+  // Class info
+  const cls=c.classes?.[0];
+  const className=cls?.definition?.name||'Unknown';
+  const subclassName=cls?.subclassDefinition?.name||'';
+  const level=cls?.level||1;
+  const profBonus=Math.floor((level-1)/4)+2;
+
+  // Spellcasting ability
+  const spellAbilityId=cls?.definition?.spellCastingAbilityId||5;
+  const spellMod=stats[spellAbilityId-1]?.mod||0;
+  const spellDC=8+profBonus+spellMod;
+  const spellAtk=profBonus+spellMod;
+
+  // HP
+  const baseHP=c.baseHitPoints||10;
+  const bonusHP=(c.bonusHitPoints||0)+(c.temporaryHitPoints||0);
+  const removedHP=c.removedHitPoints||0;
+  const maxHP=baseHP+bonusHP+(stats[2].mod*level);
+  const currentHP=maxHP-removedHP;
+
+  // AC (simplified — base 10+DEX, check for armor/shield in modifiers)
+  let ac=10+stats[1].mod;
+  // Look for armor items
+  (c.inventory||[]).forEach(item=>{
+    if(!item.equipped)return;
+    const def=item.definition;
+    if(!def)return;
+    if(def.armorClass){
+      const aType=def.armorTypeId;
+      if(aType===1)ac=def.armorClass+stats[1].mod; // light
+      else if(aType===2)ac=def.armorClass+Math.min(stats[1].mod,2); // medium
+      else if(aType===3)ac=def.armorClass; // heavy
+      else if(aType===4)ac+=2; // shield
+    }
+  });
+  // Second pass for shield
+  (c.inventory||[]).forEach(item=>{
+    if(!item.equipped)return;
+    const def=item.definition;
+    if(def&&def.armorTypeId===4)ac+=2;
+  });
+
+  // Save proficiencies
+  const saveProficiencies=new Set();
+  allMods.forEach(m=>{
+    if(m.type==='proficiency'&&m.subType&&m.subType.endsWith('-saving-throws')){
+      const s=m.subType.replace('-saving-throws','');
+      saveProficiencies.add(s);
+    }
+  });
+
+  // Skill proficiencies
+  const skillProfs=[];
+  const SKILL_STAT={athletics:0,acrobatics:1,'sleight-of-hand':1,stealth:1,arcana:3,history:3,investigation:3,nature:3,religion:3,'animal-handling':4,insight:4,medicine:4,perception:4,survival:4,deception:5,intimidation:5,performance:5,persuasion:5};
+  allMods.forEach(m=>{
+    if(m.type==='proficiency'&&SKILL_STAT[m.subType]!==undefined){
+      const si=SKILL_STAT[m.subType];
+      const name=m.subType.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+      skillProfs.push({name,bonus:stats[si].mod+profBonus});
+    }
+  });
+
+  // Spell slots
+  const slotsByLevel=[];
+  const spellRules=cls?.definition?.spellRules;
+  if(spellRules?.levelSpellSlots?.[level]){
+    spellRules.levelSpellSlots[level].forEach((count,i)=>{
+      if(count>0)slotsByLevel.push({level:i+1,total:count,used:(c.spellSlots?.[i]?.used)||0});
+    });
+  }
+
+  // Spells
+  const spells={cantrips:[],leveled:[]};
+  const allSpells=[...(c.spells?.race||[]),...(c.spells?.class||[]),...(c.classSpells?.[0]?.spells||[]),...(c.spells?.feat||[])];
+  // Dedup by name
+  const seen=new Set();
+  allSpells.forEach(s=>{
+    const def=s.definition;
+    if(!def||seen.has(def.name))return;
+    seen.add(def.name);
+    const spell={
+      name:def.name,
+      level:def.level,
+      school:def.school,
+      concentration:def.concentration,
+      ritual:def.ritual,
+      range:formatRange(def.range),
+      activation:ACTIVATION_TYPES[def.activation?.activationType]||'Action',
+      description:stripHTML(def.description),
+      components:def.componentsDescription,
+      duration:formatDuration(def.duration),
+      canUpcast:def.canCastAtHigherLevel,
+      prepared:s.prepared||s.alwaysPrepared||def.level===0,
+      alwaysPrepared:s.alwaysPrepared,
+      damage:extractDamage(def),
+      saveDC:def.requiresSavingThrow?`DC ${spellDC}`:'',
+      attackRoll:def.requiresAttackRoll?`+${spellAtk}`:'',
+      upcastInfo:extractUpcast(def),
+    };
+    if(def.level===0)spells.cantrips.push(spell);
+    else if(spell.prepared)spells.leveled.push(spell);
+  });
+  spells.leveled.sort((a,b)=>a.level-b.level);
+
+  // Actions/Features
+  const features={actions:[],bonus:[],reactions:[],passive:[]};
+  const allActions=[...(c.actions?.race||[]),...(c.actions?.class||[]),...(c.actions?.feat||[])];
+  allActions.forEach(a=>{
+    const feat={
+      name:a.name,
+      description:stripHTML(a.description),
+      snippet:a.snippet?stripHTML(a.snippet):'',
+      activation:ACTIVATION_TYPES[a.activation?.activationType]||'Action',
+      dice:a.dice?`${a.dice.diceCount}d${a.dice.diceValue}${a.dice.fixedValue?'+'+a.dice.fixedValue:''}`:'',
+      range:a.range?.range?`${a.range.range}ft`:'',
+      limitedUse:a.limitedUse?{max:a.limitedUse.maxUses||(a.limitedUse.statModifierUsesId?stats[a.limitedUse.statModifierUsesId-1]?.mod||1:1),used:a.limitedUse.numberUsed||0,resetType:a.limitedUse.resetType}:null,
+      saveDC:a.saveStatId?`DC ${spellDC}`:'',
+      aoe:a.range?.aoeSize?`${a.range.aoeSize}ft ${a.range.aoeType===14?'emanation':''}`:'',
+    };
+    const at=a.activation?.activationType;
+    if(at===3)features.bonus.push(feat);
+    else if(at===4)features.reactions.push(feat);
+    else features.actions.push(feat);
+  });
+
+  // Race features (passives)
+  const raceName=c.race?.fullName||c.race?.baseName||'Unknown';
+
+  return{
+    name:c.name||'Character',
+    race:raceName,
+    className,subclassName,level,profBonus,
+    stats,ac,
+    hp:{current:currentHP,max:maxHP},
+    speed:c.race?.weightSpeeds?.normal?.walk||30,
+    saveProficiencies,skillProfs,
+    spellDC,spellAtk,spellMod,
+    slotsByLevel,spells,features,
+  };
+}
+
+// ─── HELPERS ───
+function stripHTML(s){return s?s.replace(/<[^>]*>/g,'').replace(/\r?\n/g,' ').replace(/\s+/g,' ').trim():''}
+function formatRange(r){if(!r)return'';if(r.origin==='Touch')return'Touch';if(r.origin==='Self')return'Self';if(r.rangeValue)return`${r.rangeValue}ft`;return''}
+function formatDuration(d){if(!d)return'';if(d.durationType==='Instantaneous')return'Instant';if(d.durationType==='Concentration')return`Conc ${d.durationInterval} ${d.durationUnit}`;if(d.durationType==='Time')return`${d.durationInterval} ${d.durationUnit}`;return''}
+function extractDamage(def){
+  const mods=def.modifiers||[];
+  for(const m of mods){
+    if(m.type==='damage'&&m.die){
+      return `${m.die.diceCount}d${m.die.diceValue}${m.die.fixedValue?'+'+m.die.fixedValue:''} ${m.subType||''}`;
+    }
+  }
+  return '';
+}
+function extractUpcast(def){
+  if(!def.canCastAtHigherLevel)return null;
+  const mods=def.modifiers||[];
+  for(const m of mods){
+    if(m.atHigherLevels?.higherLevelDefinitions?.length>0){
+      const hl=m.atHigherLevels.higherLevelDefinitions[0];
+      if(hl.dice){
+        return{perLevel:`+${hl.dice.diceCount}d${hl.dice.diceValue}`,type:m.subType||''};
+      }
+      if(hl.value){
+        return{perLevel:`+${hl.value} target(s)`,type:''};
+      }
+    }
+  }
+  return null;
+}
+
+function spellIcon(spell){
+  const n=spell.name.toLowerCase();
+  if(n.includes('fire')||n.includes('flame')||n.includes('burn')||n.includes('scorch'))return'🔥';
+  if(n.includes('heal')||n.includes('prayer')||n.includes('cure'))return'💚';
+  if(n.includes('bolt')||n.includes('lightning'))return'⚡';
+  if(n.includes('shield')||n.includes('ward')||n.includes('resistance'))return'🛡️';
+  if(n.includes('bless'))return'🙌';
+  if(n.includes('bane'))return'😈';
+  if(n.includes('guid'))return'🙏';
+  if(n.includes('light'))return'💡';
+  if(n.includes('toll')||n.includes('dead'))return'🔔';
+  if(n.includes('inflict')||n.includes('wound')||n.includes('necrotic'))return'💀';
+  if(n.includes('spirit'))return'⚔️';
+  if(n.includes('see')||n.includes('invis')||n.includes('eye'))return'👁️';
+  if(n.includes('radiance')||n.includes('radiant')||n.includes('dawn'))return'🔆';
+  if(n.includes('faerie'))return'✨';
+  if(n.includes('thunder')||n.includes('shatter'))return'💥';
+  if(n.includes('ray'))return'🔥🔥';
+  if(spell.damage)return'⚔️';
+  return'✦';
+}
+
+// ─── RENDERER ───
+function buildSheet(rawChar){
+  const c=parseChar(rawChar);
+  document.getElementById('loader').style.display='none';
+  const sheet=document.getElementById('sheet');
+  sheet.style.display='block';
+
+  // Save parsed char for state management
+  window._char=c;
+  window._hp=c.hp.current;
+  window._maxHp=c.hp.max;
+
+  let html='';
+
+  // HEADER
+  html+=`<div class="hdr">
+    <div><h1>⚔️ ${c.name}</h1></div>
+    <span class="cls">${c.race} ${c.className} ${c.level}${c.subclassName?' · '+c.subclassName:''}</span>
+    <button class="reload" onclick="location.reload()">← New Character</button>
+  </div>`;
+
+  // HP
+  html+=`<div class="hp">
+    <span style="font-size:10px;color:var(--dim)">HP</span>
+    <div class="bar"><div class="fill" id="hpF"></div></div>
+    <span class="val" id="hpT">${c.hp.current}/${c.hp.max}</span>
+    <button class="b" onclick="chHP(-1)">−</button><button class="b" onclick="chHP(1)">+</button>
+    <button class="b" onclick="chHP(-5)" style="font-size:9px">-5</button><button class="b" onclick="chHP(5)" style="font-size:9px">+5</button>
+  </div>`;
+
+  // STATS
+  html+=`<div class="stats">
+    <div class="st"><div class="l">AC</div><div class="v">${c.ac}</div></div>
+    <div class="st"><div class="l">Init</div><div class="v">${c.stats[1].mod>=0?'+':''}${c.stats[1].mod}</div></div>
+    <div class="st"><div class="l">Spd</div><div class="v">${c.speed}</div></div>
+    <div class="st"><div class="l">Prof</div><div class="v">+${c.profBonus}</div></div>
+    <div class="st"><div class="l">DC</div><div class="v">${c.spellDC}</div></div>
+    <div class="st"><div class="l">Atk</div><div class="v">+${c.spellAtk}</div></div>`;
+  c.stats.forEach(s=>{
+    const isProf=c.saveProficiencies.has(s.name.toLowerCase());
+    html+=`<div class="st${isProf?' prof':''}"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${s.mod>=0?'+':''}${s.mod}</div></div>`;
+  });
+  html+=`</div>`;
+
+  // SPELL SLOTS
+  if(c.slotsByLevel.length){
+    html+=`<div class="slots-row">`;
+    c.slotsByLevel.forEach(sl=>{
+      html+=`<div class="slots"><span class="lbl">${ordinal(sl.level)}:</span>`;
+      for(let i=0;i<sl.total;i++){
+        const filled=i>=sl.used;
+        html+=`<div class="sp${filled?' f':''}" data-lvl="${sl.level}" onclick="tSP(this)"></div>`;
+      }
+      html+=`</div>`;
+    });
+    html+=`</div>`;
+  }
+
+  // GRID
+  html+=`<div class="grid">`;
+
+  // COL 1: ACTIONS
+  html+=`<div class="col">`;
+  html+=`<div class="sh"><span class="tag t-act">ACTION</span> Your Turn</div>`;
+
+  // Cantrips
+  if(c.spells.cantrips.length){
+    html+=`<div class="sh2">— Cantrips (at will) —</div><div class="card-grid">`;
+    c.spells.cantrips.forEach(sp=>{
+      html+=spellCard(sp,c);
+    });
+    html+=`</div>`;
+  }
+
+  // Leveled spells by level, ACTION only
+  const actionSpells=c.spells.leveled.filter(s=>s.activation==='Action');
+  const bonusSpells=c.spells.leveled.filter(s=>s.activation==='Bonus Action');
+  const spellLevels=[...new Set(actionSpells.map(s=>s.level))].sort();
+  spellLevels.forEach(lvl=>{
+    const spellsAtLvl=actionSpells.filter(s=>s.level===lvl);
+    html+=`<div class="sh2">— ${ordinal(lvl)} Level Spells —</div><div class="card-grid">`;
+    spellsAtLvl.forEach(sp=>{html+=spellCard(sp,c)});
+    html+=`</div>`;
+  });
+
+  // Action features
+  if(c.features.actions.length){
+    html+=`<div class="sh2">— Features (Action) —</div><div class="card-grid">`;
+    c.features.actions.forEach(f=>{html+=featureCard(f)});
+    html+=`</div>`;
+  }
+  html+=`</div>`;
+
+  // COL 2: BONUS + REACTIONS
+  html+=`<div class="col">`;
+  if(bonusSpells.length||c.features.bonus.length){
+    html+=`<div class="sh"><span class="tag t-ba">BONUS</span> Same Turn</div><div class="card-grid">`;
+    bonusSpells.forEach(sp=>{html+=spellCard(sp,c)});
+    c.features.bonus.forEach(f=>{html+=featureCard(f)});
+    html+=`</div>`;
+  }
+  if(c.features.reactions.length){
+    html+=`<div class="sh" style="margin-top:4px"><span class="tag t-react">REACTION</span> Others' Turns</div><div class="card-grid">`;
+    c.features.reactions.forEach(f=>{html+=featureCard(f)});
+    html+=`</div>`;
+  }
+
+  // Saves
+  html+=`<div class="sh" style="margin-top:6px">Saving Throws</div>`;
+  html+=`<div style="display:flex;flex-wrap:wrap;gap:2px">`;
+  c.stats.forEach(s=>{
+    const isProf=c.saveProficiencies.has(s.name.toLowerCase());
+    const saveVal=s.mod+(isProf?c.profBonus:0);
+    html+=`<div class="st${isProf?' prof':'}" style="min-width:55px"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${saveVal>=0?'+':''}${saveVal}</div></div>`;
+  });
+  html+=`</div>`;
+
+  // Skills
+  if(c.skillProfs.length){
+    html+=`<div class="sh" style="margin-top:6px">Skills (proficient)</div>`;
+    html+=`<div class="skills-line">`;
+    html+=c.skillProfs.map(s=>`<b>${s.name}</b> +${s.bonus}`).join(' · ');
+    html+=`</div>`;
+  }
+  html+=`</div>`;
+
+  // COL 3: DICE + NOTES
+  html+=`<div class="col">`;
+  html+=`<div class="sh">🎲 Quick Roll</div>`;
+  html+=`<div class="dr" id="dR">—</div>`;
+  html+=`<div class="dice">`;
+  html+=`<button class="db" onclick="rl(20,1,0)">d20</button>`;
+  html+=`<button class="db" onclick="rl(20,1,${c.spellAtk})">Atk+${c.spellAtk}</button>`;
+  // Common dice based on spells
+  const diceSet=new Set(['d4','d6','d8','d10','d12']);
+  html+=`<button class="db" onclick="rl(8,1,0)">d8</button>`;
+  html+=`<button class="db" onclick="rl(6,1,0)">d6</button>`;
+  html+=`<button class="db" onclick="rl(10,1,0)">d10</button>`;
+  html+=`<button class="db" onclick="rl(12,1,0)">d12</button>`;
+  html+=`<button class="db" onclick="rl(4,1,0)">d4</button>`;
+  html+=`<button class="db" onclick="rl(6,4,0)">4d6</button>`;
+  html+=`<button class="db" onclick="rl(8,2,0)">2d8</button>`;
+  html+=`<button class="db" onclick="rl(10,2,0)">2d10</button>`;
+  html+=`</div>`;
+  html+=`</div>`;
+
+  html+=`</div>`; // grid
+
+  // REST BUTTONS
+  html+=`<div class="rest-btns">
+    <button class="rbtn sr-btn" onclick="shortRest()">⏳ Short Rest</button>
+    <button class="rbtn lr-btn" onclick="longRest()">🌙 Long Rest</button>
+  </div>`;
+
+  sheet.innerHTML=html;
+  upHP();
+  initTooltips();
+  updateExhausted();
+}
+
+function spellCard(sp,c){
+  const ico=spellIcon(sp);
+  const isCantrip=sp.level===0;
+  const meta=[];
+  if(sp.range)meta.push(sp.range);
+  if(sp.damage)meta.push(sp.damage);
+  if(sp.attackRoll)meta.push(sp.attackRoll);
+  if(sp.saveDC)meta.push(sp.saveDC);
+
+  // Build level picker buttons
+  let lvlBtns='';
+  if(!isCantrip){
+    const maxSlot=window._char?.slotsByLevel?.length?Math.max(...window._char.slotsByLevel.map(s=>s.level)):sp.level;
+    for(let l=sp.level;l<=maxSlot;l++){
+      lvlBtns+=`<button class="lp-btn" onclick="event.stopPropagation();spend(this,${l})">${ordinal(l)}</button>`;
+    }
+  }
+
+  const ttParts=[];
+  ttParts.push(`<h3>${ico} ${sp.name}</h3>`);
+  ttParts.push(`<div class="mt">${isCantrip?'Cantrip':ordinal(sp.level)} · ${sp.duration}${sp.range?' · '+sp.range:''}${sp.saveDC?' · '+sp.saveDC:''}${sp.attackRoll?' · '+sp.attackRoll:''}</div>`);
+  ttParts.push(`<p>${sp.description.substring(0,300)}${sp.description.length>300?'...':''}</p>`);
+  if(sp.upcastInfo)ttParts.push(`<p><b>Upcast:</b> ${sp.upcastInfo.perLevel} ${sp.upcastInfo.type} per level above ${ordinal(sp.level)}</p>`);
+
+  return `<div class="a${isCantrip?'':' castable'}" ${isCantrip?'':`data-min-lvl="${sp.level}" onclick="castSpell(this)"`}>
+    <div class="top"><span class="ico">${ico}</span><span class="n">${sp.name}</span></div>
+    <div class="bot"><span class="m">${meta.join(' · ')}</span>${sp.concentration?'<span class="conc">CONC</span>':''}</div>
+    <div class="tt">${ttParts.join('')}</div>
+    ${isCantrip?'':`<div class="lvl-pick"><span class="lp-label">Cast at:</span>${lvlBtns}</div>`}
+  </div>`;
+}
+
+function featureCard(f){
+  const pips=[];
+  if(f.limitedUse){
+    const max=f.limitedUse.max;
+    const used=f.limitedUse.used;
+    const isSR=f.limitedUse.resetType===1;
+    const abilityId=f.name.replace(/[^a-zA-Z]/g,'').substring(0,8);
+    for(let i=0;i<max;i++){
+      const filled=i>=used;
+      pips.push(`<div class="pip${isSR?' sr':''}${filled?' f':''}" data-ability="${abilityId}" onclick="event.stopPropagation();tP(this)"></div>`);
+    }
+  }
+  const meta=[];
+  if(f.dice)meta.push(f.dice);
+  if(f.range)meta.push(f.range);
+  if(f.aoe)meta.push(f.aoe);
+  if(f.saveDC)meta.push(f.saveDC);
+
+  return `<div class="a${f.limitedUse?' wide':''}">
+    <div class="top"><span class="ico">${f.dice?'⚔️':'✦'}</span><span class="n">${f.name}</span>${pips.length?'<div class="pips">'+pips.join('')+'</div>':''}</div>
+    ${meta.length?`<div class="bot"><span class="m">${meta.join(' · ')}</span></div>`:''}
+    <div class="tt"><h3>${f.name}</h3><div class="mt">${f.activation}${f.limitedUse?' · '+f.limitedUse.max+'/'+(f.limitedUse.resetType===1?'Short':'Long')+' Rest':''}</div><p>${(f.snippet||f.description).substring(0,400)}</p></div>
+  </div>`;
+}
+
+function ordinal(n){const s=['th','st','nd','rd'];const v=n%100;return n+(s[(v-20)%10]||s[v]||s[0])}
+
+// ─── INTERACTIVITY ───
+function upHP(){
+  const t=document.getElementById('hpT');if(!t)return;
+  t.textContent=`${window._hp}/${window._maxHp}`;
+  const f=document.getElementById('hpF');
+  const p=window._hp/window._maxHp*100;
+  f.style.width=p+'%';
+  f.style.background=p>50?'#44cc66':p>25?'#ccaa33':'#cc3344';
+}
+function chHP(d){window._hp=Math.max(0,Math.min(window._maxHp,window._hp+d));upHP();sv()}
+function tSP(e){e.classList.toggle('f');sv();updateExhausted()}
+function tP(e){e.classList.toggle('f');sv();updateExhausted()}
+
+function rl(s,c,m){
+  let t=0,r=[];for(let i=0;i<c;i++){const v=Math.floor(Math.random()*s)+1;r.push(v);t+=v}t+=m;
+  const ms=m?`+${m}`:'';
+  const n=c===1&&s===20?(r[0]===20?' NAT 20! 🎉':r[0]===1?' NAT 1 💀':''):'';
+  const e=document.getElementById('dR');
+  e.textContent=`${t} [${r.join('+')}${ms}]${n}`;
+  e.style.color=n.includes('20')?'#0f8':n.includes('1')?'#f44':'#ffd700';
+}
+
+let openPicker=null;
+function castSpell(card){
+  const pick=card.querySelector('.lvl-pick');
+  if(openPicker&&openPicker!==pick){openPicker.classList.remove('show');openPicker.parentElement.classList.remove('picker-open')}
+  pick.classList.toggle('show');
+  card.classList.toggle('picker-open');
+  openPicker=pick.classList.contains('show')?pick:null;
+  if(openPicker){
+    pick.querySelectorAll('.lp-btn').forEach(btn=>{
+      const txt=btn.textContent;
+      const lvl=parseInt(txt);
+      const avail=[...document.querySelectorAll(`.sp[data-lvl="${lvl}"].f`)].length;
+      btn.style.opacity=avail>0?'1':'0.3';
+    });
+  }
+}
+function spend(btn,lvl){
+  const slot=[...document.querySelectorAll(`.sp[data-lvl="${lvl}"].f`)].pop();
+  if(!slot)return;
+  slot.classList.remove('f');
+  const card=btn.closest('.a');
+  card.classList.add('cast-flash');
+  setTimeout(()=>card.classList.remove('cast-flash'),400);
+  const pick=card.querySelector('.lvl-pick');
+  pick.classList.remove('show');card.classList.remove('picker-open');
+  openPicker=null;
+  sv();updateExhausted();
+}
+document.addEventListener('click',e=>{
+  if(openPicker&&!e.target.closest('.a.picker-open')){
+    openPicker.classList.remove('show');openPicker.parentElement.classList.remove('picker-open');openPicker=null;
+  }
+});
+
+function updateExhausted(){
+  document.querySelectorAll('.a.castable[data-min-lvl]').forEach(card=>{
+    const min=parseInt(card.dataset.minLvl);
+    let canCast=false;
+    for(let lvl=min;lvl<=9;lvl++){
+      if(document.querySelector(`.sp[data-lvl="${lvl}"].f`)){canCast=true;break}
+    }
+    card.classList.toggle('exhausted',!canCast);
+  });
+  const abilities={};
+  document.querySelectorAll('.pip[data-ability]').forEach(pip=>{
+    const id=pip.dataset.ability;
+    if(!abilities[id])abilities[id]={any:false,card:pip.closest('.a')};
+    if(pip.classList.contains('f'))abilities[id].any=true;
+  });
+  for(const id in abilities){
+    abilities[id].card.classList.toggle('exhausted',!abilities[id].any);
+  }
+}
+
+function shortRest(){
+  document.querySelectorAll('.pip.sr').forEach(p=>p.classList.add('f'));
+  document.getElementById('dR').textContent='⏳ Short Rest!';
+  document.getElementById('dR').style.color='#4466aa';
+  sv();updateExhausted();
+}
+function longRest(){
+  window._hp=window._maxHp;upHP();
+  document.querySelectorAll('.sp,.pip').forEach(p=>p.classList.add('f'));
+  document.getElementById('dR').textContent='🌙 Full Restore!';
+  document.getElementById('dR').style.color='#0c8';
+  sv();updateExhausted();
+}
+
+function initTooltips(){
+  document.querySelectorAll('.a').forEach(card=>{
+    const tt=card.querySelector('.tt');
+    if(!tt)return;
+    card.addEventListener('mouseenter',()=>{
+      if(card.classList.contains('picker-open')||card.classList.contains('exhausted'))return;
+      const r=card.getBoundingClientRect();
+      tt.style.left=r.left+'px';
+      tt.classList.add('show');
+      const tr=tt.getBoundingClientRect();
+      const below=r.bottom+4;
+      const above=r.top-tr.height-4;
+      if(below+tr.height>window.innerHeight&&above>=0){
+        tt.style.top=above+'px';
+      }else{
+        tt.style.top=below+'px';
+      }
+      if(r.left+tr.width>window.innerWidth){
+        tt.style.left=(window.innerWidth-tr.width-8)+'px';
+      }
+    });
+    card.addEventListener('mouseleave',()=>{tt.classList.remove('show')});
+  });
+}
+
+// Save/load state keyed by character name
+function sv(){
+  const key='dndcs_'+window._char?.name;
+  const s=[...document.querySelectorAll('.sp')].map(p=>p.classList.contains('f'));
+  const p=[...document.querySelectorAll('.pip')].map(p=>p.classList.contains('f'));
+  localStorage.setItem(key,JSON.stringify({hp:window._hp,s,p}));
+}
+function ld(){
+  const key='dndcs_'+window._char?.name;
+  const r=localStorage.getItem(key);
+  if(!r)return;
+  try{
+    const d=JSON.parse(r);
+    if(d.hp!==undefined)window._hp=d.hp;
+    if(d.s)document.querySelectorAll('.sp').forEach((p,i)=>{if(d.s[i]!==undefined)p.classList.toggle('f',d.s[i])});
+    if(d.p)document.querySelectorAll('.pip').forEach((p,i)=>{if(d.p[i]!==undefined)p.classList.toggle('f',d.p[i])});
+  }catch(e){}
+}
+
+// Check URL params for auto-load
+const params=new URLSearchParams(location.search);
+if(params.get('id')){
+  document.getElementById('urlInput').value=`https://www.dndbeyond.com/characters/${params.get('id')}`;
+  loadChar();
+}else if(params.get('url')){
+  document.getElementById('urlInput').value=params.get('url');
+  loadChar();
+}
+</script>
+</body>
+</html>
