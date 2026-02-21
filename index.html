@@ -226,10 +226,11 @@ function parseChar(c){
 
   // Save proficiencies
   const saveProficiencies=new Set();
+  const saveNameMap={strength:'STR',dexterity:'DEX',constitution:'CON',intelligence:'INT',wisdom:'WIS',charisma:'CHA'};
   allMods.forEach(m=>{
     if(m.type==='proficiency'&&m.subType&&m.subType.endsWith('-saving-throws')){
       const s=m.subType.replace('-saving-throws','');
-      saveProficiencies.add(s);
+      saveProficiencies.add(saveNameMap[s]||s);
     }
   });
 
@@ -362,6 +363,7 @@ function parseChar(c){
     hp:{current:currentHP,max:maxHP},
     speed:c.race?.weightSpeeds?.normal?.walk||30,
     saveProficiencies,skillProfs,
+    hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
     spellDC,spellAtk,spellMod,
     slotsByLevel,spells,features,trackedItems,
     // For template resolution
@@ -503,7 +505,7 @@ function buildSheet(rawChar){
     <div class="st"><div class="l">DC</div><div class="v">${c.spellDC}</div></div>
     <div class="st"><div class="l">Atk</div><div class="v">+${c.spellAtk}</div></div>`;
   c.stats.forEach(s=>{
-    const isProf=c.saveProficiencies.has(s.name.toLowerCase());
+    const isProf=c.saveProficiencies.has(s.name);
     html+=`<div class="st${isProf?' prof':''}"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${s.mod>=0?'+':''}${s.mod}</div></div>`;
   });
   html+=`</div>`;
@@ -522,6 +524,16 @@ function buildSheet(rawChar){
     html+=`</div>`;
   }
 
+  // HIT DICE
+  html+=`<div class="slots-row">`;
+  html+=`<div class="slots"><span class="lbl">HD:</span>`;
+  for(let i=0;i<c.hitDice.total;i++){
+    const filled=i>=c.hitDice.used;
+    html+=`<div class="sp${filled?' f':''}" data-hd="1" onclick="tSP(this)" style="border-color:var(--gold)${filled?';background:var(--gold)':''}"></div>`;
+  }
+  html+=`<span class="m" style="margin-left:4px">d${c.hitDice.die}+${c.stats[2].mod>=0?c.stats[2].mod:c.stats[2].mod}</span>`;
+  html+=`</div></div>`;
+
   // GRID
   html+=`<div class="grid">`;
 
@@ -539,8 +551,9 @@ function buildSheet(rawChar){
   }
 
   // Leveled spells by level, ACTION only
-  const actionSpells=c.spells.leveled.filter(s=>s.activation==='Action');
   const bonusSpells=c.spells.leveled.filter(s=>s.activation==='Bonus Action');
+  const reactionSpells=c.spells.leveled.filter(s=>s.activation==='Reaction');
+  const actionSpells=c.spells.leveled.filter(s=>s.activation!=='Bonus Action'&&s.activation!=='Reaction');
   const spellLevels=[...new Set(actionSpells.map(s=>s.level))].sort();
   spellLevels.forEach(lvl=>{
     const spellsAtLvl=actionSpells.filter(s=>s.level===lvl);
@@ -575,7 +588,7 @@ function buildSheet(rawChar){
   html+=`<div class="sh" style="margin-top:6px">Saving Throws</div>`;
   html+=`<div style="display:flex;flex-wrap:wrap;gap:2px">`;
   c.stats.forEach(s=>{
-    const isProf=c.saveProficiencies.has(s.name.toLowerCase());
+    const isProf=c.saveProficiencies.has(s.name);
     const saveVal=s.mod+(isProf?c.profBonus:0);
     html+=`<div class="st${isProf?' prof':''}" style="min-width:55px"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${saveVal>=0?'+':''}${saveVal}</div></div>`;
   });
@@ -810,13 +823,48 @@ function incCounter(btn){
 
 function shortRest(){
   document.querySelectorAll('.pip.sr').forEach(p=>p.classList.add('f'));
+  // Count available hit dice and offer to spend them
+  const hdSlots=[...document.querySelectorAll('.sp[data-hd].f')];
+  if(hdSlots.length>0&&window._hp<window._maxHp){
+    const spend=prompt(`⏳ Short Rest! You have ${hdSlots.length} Hit Dice. Spend how many? (0-${hdSlots.length})`,'0');
+    const n=Math.min(parseInt(spend)||0,hdSlots.length);
+    if(n>0){
+      const die=window._char?.hitDice?.die||8;
+      const conMod=window._char?._stats?.[2]?.mod||0;
+      let totalHeal=0;
+      const rolls=[];
+      for(let i=0;i<n;i++){
+        hdSlots[i].classList.remove('f');
+        hdSlots[i].style.background='';
+        const roll=Math.floor(Math.random()*die)+1+conMod;
+        const heal=Math.max(1,roll);
+        totalHeal+=heal;
+        rolls.push(roll);
+      }
+      window._hp=Math.min(window._maxHp,window._hp+totalHeal);
+      upHP();
+      document.getElementById('dR').textContent=`⏳ Healed ${totalHeal} HP [${rolls.join('+')}]`;
+      document.getElementById('dR').style.color='var(--heal)';
+      sv();updateExhausted();
+      return;
+    }
+  }
   document.getElementById('dR').textContent='⏳ Short Rest!';
   document.getElementById('dR').style.color='#4466aa';
   sv();updateExhausted();
 }
 function longRest(){
   window._hp=window._maxHp;upHP();
-  document.querySelectorAll('.sp,.pip').forEach(p=>p.classList.add('f'));
+  // Restore spell slots and pips
+  document.querySelectorAll('.sp:not([data-hd]),.pip').forEach(p=>p.classList.add('f'));
+  // Restore half hit dice (rounded up)
+  const hdSlots=[...document.querySelectorAll('.sp[data-hd]')];
+  const spent=hdSlots.filter(s=>!s.classList.contains('f')).length;
+  const restore=Math.max(1,Math.ceil(hdSlots.length/2));
+  let restored=0;
+  hdSlots.forEach(s=>{
+    if(!s.classList.contains('f')&&restored<restore){s.classList.add('f');s.style.background='var(--gold)';restored++}
+  });
   document.querySelectorAll('.item-counter').forEach(c=>{c.textContent=c.dataset.max;const card=c.closest('.a');if(card)card.classList.remove('exhausted')});
   document.getElementById('dR').textContent='🌙 Full Restore!';
   document.getElementById('dR').style.color='#0c8';
