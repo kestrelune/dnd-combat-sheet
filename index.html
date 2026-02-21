@@ -406,7 +406,7 @@ async function parseChar(c){
     const saveStatMatch=descLow.match(/(strength|dexterity|constitution|intelligence|wisdom|charisma) sav/);
     if(saveStatMatch)saveStat=saveStatMatch[1].substring(0,3).toUpperCase();
     // Healing
-    const healDice=def.healingDice;
+    const healDice=def.healingDice?.length?def.healingDice:null;
     // Build effect summary for combat log
     const effectNotes=buildEffectNotes(def.name,spellMods,descLow);
 
@@ -1557,7 +1557,8 @@ function autoCast(sp,castLevel){
   const isAttack=sp.attackRoll&&sp.attackRoll.includes('+');
   const isSave=sp.saveDC&&sp.saveDC.includes('DC');
   const hasDamage=!!sp.damage;
-  const isHealing=!!sp.healDice||(sp.spellMods||[]).some(m=>m.type==='bonus'&&(m.sub||'').includes('hit-point'));
+  const hasHealDice=sp.healDice&&(typeof sp.healDice==='string'?sp.healDice.length>0:Array.isArray(sp.healDice)?sp.healDice.length>0:!!sp.healDice);
+  const isHealing=hasHealDice||(sp.spellMods||[]).some(m=>m.type==='bonus'&&(m.sub||'').includes('hit-point'));
 
   // ATTACK ROLL
   if(isAttack){
@@ -1604,9 +1605,21 @@ function autoCast(sp,castLevel){
   // HEALING (detect from healDice, damage field, or description for spells like Prayer of Healing)
   const healDetected=isHealing||(!hasDamage&&!isAttack&&sp.description&&sp.description.toLowerCase().match(/regain.*\d+d\d+|heal.*\d+d\d+|\d+d\d+.*hit point/));
   if(healDetected&&!hasDamage){
-    const healStr=sp.healDice||(sp.damage);
+    const healStr=(typeof sp.healDice==='string'&&sp.healDice)?sp.healDice:sp.damage;
     // Try to extract heal dice from description if no explicit field
     let heal=parseDamage(healStr,castLevel,sp.level);
+    // Try to extract heal dice from spell modifiers (e.g. Prayer of Healing has bonus/hit-points with die)
+    if(!heal&&sp.spellMods){
+      const hpMod=sp.spellMods.find(m=>m.type==='bonus'&&(m.sub||'').includes('hit-point')&&m.die);
+      if(hpMod&&hpMod.die){
+        let count=hpMod.die.diceCount||1;
+        const sides=hpMod.die.diceValue||8;
+        const bonus=hpMod.die.fixedValue||(c?.spellMod||0);
+        if(castLevel>sp.level&&sp.level>0)count+=(castLevel-sp.level);
+        heal={count,sides,bonus};
+      }
+    }
+    // Fallback: extract from description text
     if(!heal&&sp.description){
       const descHealMatch=sp.description.match(/(\d+)d(\d+)\s*\+\s*(\d+)/i)||sp.description.match(/(\d+)d(\d+)/i);
       if(descHealMatch){
