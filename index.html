@@ -933,7 +933,15 @@ async function buildSheet(rawChar){
   </div>`;
 
   // COMBAT LOG
-  html+=`<div class="combat-log" id="combatLog"><span class="cl-empty">Click a spell to cast it...</span></div>`;
+  const showAtkCounter=(c.extraAttacks||1)>1;
+  html+=`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+    <div class="combat-log" id="combatLog" style="flex:1;margin-bottom:0"><span class="cl-empty">Click a weapon or spell...</span></div>
+    ${showAtkCounter?`<div style="display:flex;flex-direction:column;gap:2px;align-items:center">
+      <span id="atkCounter" style="font-size:11px;color:var(--gold);white-space:nowrap">Attacks: ${c.extraAttacks}/${c.extraAttacks}</span>
+      <span id="turnDmg" style="font-size:10px;color:var(--dim);display:none;white-space:nowrap"></span>
+      <button onclick="resetTurn()" style="padding:2px 8px;border-radius:4px;border:1px solid var(--brd);background:var(--card);color:var(--dim);font-size:10px;cursor:pointer;white-space:nowrap">New Turn</button>
+    </div>`:''}
+  </div>`;
   // ACTIVE EFFECTS BAR
   html+=`<div class="effects-bar" id="effectsBar"></div>`;
 
@@ -1491,111 +1499,138 @@ function useFeature(card){
   setTimeout(()=>card.classList.remove('cast-flash'),400);
 }
 
+// Turn attack tracker
+window._turnAttacks={used:0,max:1,dmgTotal:0,sneakUsed:false};
+function resetTurn(){
+  const c=window._char;
+  window._turnAttacks={used:0,max:c?.extraAttacks||1,dmgTotal:0,sneakUsed:false};
+  updateAttackCounter();
+  const log=document.getElementById('combatLog');
+  if(log)log.innerHTML=`<span class="cl-empty">⚔️ New turn — ${window._turnAttacks.max} attack${window._turnAttacks.max>1?'s':''} available</span>`;
+}
+function updateAttackCounter(){
+  const el=document.getElementById('atkCounter');
+  if(!el)return;
+  const t=window._turnAttacks;
+  const remaining=Math.max(0,t.max-t.used);
+  el.textContent=`Attacks: ${remaining}/${t.max}`;
+  el.style.color=remaining>0?'var(--gold)':'var(--dim)';
+  if(t.dmgTotal>0){
+    const dmgEl=document.getElementById('turnDmg');
+    if(dmgEl){dmgEl.textContent=`Turn total: ${t.dmgTotal}`;dmgEl.style.display='inline'}
+  }
+}
+
 function attackWeapon(card){
   const w=JSON.parse(card.dataset.weapon);
   const log=document.getElementById('combatLog');
   if(!log)return;
   const c=window._char;
   const icon=w.ranged?'🏹':w.thrown?'🪓':'⚔️';
-  const numAttacks=c?.extraAttacks||1;
+  const t=window._turnAttacks;
+
+  // Initialize turn tracker if needed
+  if(!t.max||t.max<1){t.max=c?.extraAttacks||1;t.used=0;t.dmgTotal=0;t.sneakUsed=false}
+
   let parts=[];
-  let sneakUsed=false;
+  const atkNum=t.used+1;
+  if(t.max>1)parts.push(`<span class="cl-detail">[${atkNum}/${t.max}]</span>`);
 
   parts.push(`<span class="cl-icon">${icon}</span>`);
   parts.push(`<span class="cl-name">${w.name}</span>`);
-  if(numAttacks>1)parts.push(`<span class="cl-detail">(${numAttacks} attacks)</span>`);
+  parts.push(`<span class="cl-sep">→</span>`);
 
-  let totalDmg=0;
-  for(let i=0;i<numAttacks;i++){
-    if(i>0)parts.push(`<span class="cl-sep">|</span>`);
-    const d20=rollDice(1,20)[0];
-    const atkTotal=d20+w.atkBonus;
-    const isNat20=d20===20;
-    const isNat1=d20===1;
+  const d20=rollDice(1,20)[0];
+  const atkTotal=d20+w.atkBonus;
+  const isNat20=d20===20;
+  const isNat1=d20===1;
 
-    let atkCls='cl-atk';
-    if(isNat20)atkCls+=' nat20';
-    else if(isNat1)atkCls+=' nat1';
-    else atkCls+=(atkTotal>=15?' hit':' miss');
+  let atkCls='cl-atk';
+  if(isNat20)atkCls+=' nat20';
+  else if(isNat1)atkCls+=' nat1';
+  else atkCls+=(atkTotal>=15?' hit':' miss');
 
-    parts.push(`<span class="${atkCls}">🎯${atkTotal}</span>`);
+  parts.push(`<span class="${atkCls}">🎯${atkTotal}</span>`);
+  parts.push(`<span class="cl-detail">[${d20}+${w.atkBonus}]</span>`);
 
-    if(!isNat1){
-      const dmgMatch=w.dmgDice.match(/(\d+)d(\d+)/);
-      if(dmgMatch){
-        let dCount=parseInt(dmgMatch[1]);
-        const dSides=parseInt(dmgMatch[2]);
-        if(isNat20)dCount*=2;
-        const rolls=rollDice(dCount,dSides);
-        let dmg=rolls.reduce((a,b)=>a+b,0)+w.dmgBonus;
+  if(!isNat1){
+    const dmgMatch=w.dmgDice.match(/(\d+)d(\d+)/);
+    if(dmgMatch){
+      let dCount=parseInt(dmgMatch[1]);
+      const dSides=parseInt(dmgMatch[2]);
+      if(isNat20)dCount*=2;
+      const rolls=rollDice(dCount,dSides);
+      let dmg=rolls.reduce((a,b)=>a+b,0)+w.dmgBonus;
 
-        // Rage bonus damage (Barbarian, melee STR-based only)
-        if(c?.rageDamage&&w.melee&&window._activeEffects?.some(e=>e.name==='Rage')){
-          dmg+=c.rageDamage;
-          parts.push(`<span class="cl-detail">+${c.rageDamage}rage</span>`);
-        }
-
-        let extraParts=[];
-
-        // Sneak Attack (Rogue, once per turn, first hit)
-        if(c?.sneakAttackDice&&!sneakUsed&&!isNat1){
-          let saDice=c.sneakAttackDice;
-          if(isNat20)saDice*=2;
-          const saRolls=rollDice(saDice,6);
-          const saTotal=saRolls.reduce((a,b)=>a+b,0);
-          dmg+=saTotal;
-          sneakUsed=true;
-          extraParts.push(`<span class="cl-note">+🗡️${saTotal}sneak[${saRolls.join('+')}]</span>`);
-        }
-
-        totalDmg+=dmg;
-        parts.push(`<span class="cl-dmg">💥${dmg}</span>`);
-        const diceStr=`${dCount}d${dSides}: ${rolls.join('+')}`;
-        const modStr=w.dmgBonus?` | ${w.dmgBonus>0?'+':''}${w.dmgBonus} mod`:'';
-        parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
-        parts.push(...extraParts);
-        if(isNat20)parts.push(`<span class="cl-atk nat20">CRIT!</span>`);
-
-        // Weapon Mastery effects on hit
-        if(w.mastery){
-          const m=w.mastery;
-          if(m==='sap')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Sap: target has DISADVANTAGE on next attack</span>`);
-          if(m==='vex'){parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Vex: ADV on next attack vs target</span>`);addEffect('Vex ('+w.name+')','⚔️',false,'1 turn','Advantage on your next attack against this target before end of your next turn.');}
-          if(m==='push')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Push: target pushed 10ft</span>`);
-          if(m==='slow')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Slow: target speed −10ft</span>`);
-          if(m==='topple'){
-            const conSave=8+(c?._profBonus||2)+(c?._stats?.[0]?.mod||0);
-            parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Topple: target CON save DC ${conSave} or prone</span>`);
-          }
-          if(m==='cleave')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Cleave: can attack adjacent creature (same roll, no dmg mod)</span>`);
-          if(m==='nick')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Nick: extra attack available</span>`);
-        }
+      // Rage bonus damage (Barbarian, melee STR-based only)
+      if(c?.rageDamage&&w.melee&&window._activeEffects?.some(e=>e.name==='Rage')){
+        dmg+=c.rageDamage;
+        parts.push(`<span class="cl-detail">+${c.rageDamage}rage</span>`);
       }
-    }else{
-      // Miss (nat 1 or regular miss handled above)
-      parts.push(`<span class="cl-atk nat1">MISS!</span>`);
-      // Graze mastery: on miss, deal ability mod damage
-      if(w.mastery==='graze'){
-        const grazeDmg=Math.max(0,w.dmgBonus);
-        if(grazeDmg>0){
-          totalDmg+=grazeDmg;
-          parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Graze: ${grazeDmg} ${w.dmgType}</span>`);
+
+      let extraParts=[];
+
+      // Sneak Attack (Rogue, once per turn, first hit)
+      if(c?.sneakAttackDice&&!t.sneakUsed&&!isNat1){
+        let saDice=c.sneakAttackDice;
+        if(isNat20)saDice*=2;
+        const saRolls=rollDice(saDice,6);
+        const saTotal=saRolls.reduce((a,b)=>a+b,0);
+        dmg+=saTotal;
+        t.sneakUsed=true;
+        extraParts.push(`<span class="cl-note">+🗡️${saTotal}sneak[${saRolls.join('+')}]</span>`);
+      }
+
+      t.dmgTotal+=dmg;
+      parts.push(`<span class="cl-dmg">💥${dmg}</span>`);
+      const diceStr=`${dCount}d${dSides}: ${rolls.join('+')}`;
+      const modStr=w.dmgBonus?` | ${w.dmgBonus>0?'+':''}${w.dmgBonus} mod`:'';
+      parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
+      parts.push(...extraParts);
+      if(isNat20)parts.push(`<span class="cl-atk nat20">CRIT!</span>`);
+
+      // Weapon Mastery effects on hit
+      if(w.mastery){
+        const m=w.mastery;
+        if(m==='sap')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Sap: target has DISADVANTAGE on next attack</span>`);
+        if(m==='vex'){parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Vex: ADV on next attack vs target</span>`);addEffect('Vex ('+w.name+')','⚔️',false,'1 turn','Advantage on your next attack against this target before end of your next turn.');}
+        if(m==='push')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Push: target pushed 10ft</span>`);
+        if(m==='slow')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Slow: target speed −10ft</span>`);
+        if(m==='topple'){
+          const conSave=8+(c?._profBonus||2)+(c?._stats?.[0]?.mod||0);
+          parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Topple: target CON save DC ${conSave} or prone</span>`);
         }
+        if(m==='cleave')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Cleave: can attack adjacent creature (same roll, no dmg mod)</span>`);
+        if(m==='nick')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Nick: extra attack available</span>`);
+      }
+    }
+  }else{
+    parts.push(`<span class="cl-atk nat1">MISS!</span>`);
+    if(w.mastery==='graze'){
+      const grazeDmg=Math.max(0,w.dmgBonus);
+      if(grazeDmg>0){
+        t.dmgTotal+=grazeDmg;
+        parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Graze: ${grazeDmg} ${w.dmgType}</span>`);
       }
     }
   }
 
-  if(numAttacks>1){
-    parts.push(`<span class="cl-sep">=</span>`);
-    parts.push(`<span class="cl-dmg" style="font-size:18px">⚔️ ${totalDmg} total</span>`);
+  // Track attack usage
+  t.used++;
+
+  // Show turn total if multi-attack
+  if(t.max>1&&t.dmgTotal>0){
+    parts.push(`<span class="cl-sep">|</span>`);
+    parts.push(`<span class="cl-detail">Turn: ${t.dmgTotal} dmg</span>`);
   }
 
-  // Divine Smite prompt (Paladin) — after seeing the rolls
+  // Divine Smite prompt (Paladin) — after seeing the roll
   if(c?.canSmite){
     parts.push(`<br><span class="cl-note" style="cursor:pointer;text-decoration:underline" onclick="smitePrompt()">⚡ Smite?</span>`);
   }
 
   log.innerHTML=parts.join(' ');
+  updateAttackCounter();
   card.classList.add('cast-flash');
   setTimeout(()=>card.classList.remove('cast-flash'),400);
 }
