@@ -488,7 +488,7 @@ function buildSheet(rawChar){
   c.stats.forEach(s=>{
     const isProf=c.saveProficiencies.has(s.name.toLowerCase());
     const saveVal=s.mod+(isProf?c.profBonus:0);
-    html+=`<div class="st${isProf?' prof':'}" style="min-width:55px"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${saveVal>=0?'+':''}${saveVal}</div></div>`;
+    html+=`<div class="st${isProf?' prof':''}" style="min-width:55px"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${saveVal>=0?'+':''}${saveVal}</div></div>`;
   });
   html+=`</div>`;
 
