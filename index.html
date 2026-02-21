@@ -129,6 +129,9 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .eff .eff-x{cursor:pointer;opacity:.6;font-size:14px;margin-left:2px}
 .eff .eff-x:hover{opacity:1}
 .eff .eff-dur{font-weight:400;opacity:.7;font-size:10px}
+.eff{position:relative}
+.eff .eff-tip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#0d1117;border:1px solid #3a3a5a;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:400;color:var(--txt);white-space:normal;width:240px;box-shadow:0 4px 12px rgba(0,0,0,.6);z-index:200;line-height:1.4;pointer-events:none;text-align:left}
+.eff:hover .eff-tip{display:block}
 
 /* Combat log strip */
 .combat-log{background:#0d1117;border:1px solid var(--brd);border-radius:6px;padding:6px 10px;margin-bottom:4px;min-height:32px;display:flex;align-items:center;gap:8px;overflow-x:auto;white-space:nowrap}
@@ -1713,7 +1716,38 @@ function autoCast(sp,castLevel){
 // ─── ACTIVE EFFECTS TRACKER ───
 window._activeEffects=[];
 
-function addEffect(name,icon,isConc,duration){
+function getEffectDetail(name){
+  // Look up spell data for description
+  const sp=window._spellData?.[name];
+  if(sp){
+    const notes=(sp.effectNotes||[]).join('. ');
+    const dur=sp.duration||'';
+    const conc=sp.concentration?'Concentration. ':'';
+    const desc=sp.description||'';
+    // Build a useful summary
+    let summary=conc;
+    if(notes)summary+=notes+'. ';
+    if(sp.saveDC)summary+=sp.saveDC+(sp.saveStat?' '+sp.saveStat:'')+' save. ';
+    if(!summary&&desc)summary=desc.substring(0,200);
+    return summary.trim()||null;
+  }
+  // Known effects (Celestial Revelation, class features)
+  const c=window._char;
+  const pb=c?._profBonus||2;
+  const known={
+    'Heavenly Wings':`Fly speed ${c?.speed||30}ft. +${pb} radiant damage once/turn on attack or spell.`,
+    'Inner Radiance':`10ft bright light, 10ft dim. End of each turn, creatures within 10ft take ${pb} radiant. +${pb} radiant once/turn on attack or spell.`,
+    'Necrotic Shroud':`Creatures within 15ft: CHA save or Frightened. +${pb} necrotic once/turn on attack or spell.`,
+    'Rage':`Advantage on STR checks/saves. +${c?.rageDamage||2} melee damage. Resistance to bludgeoning/piercing/slashing.`,
+  };
+  if(known[name])return known[name];
+  // Check feature data
+  const f=window._featureData?.[name]||window._featureData?.['CR: '+name];
+  if(f)return(f.snippet||f.description||'').substring(0,200);
+  return null;
+}
+
+function addEffect(name,icon,isConc,duration,detail){
   const bar=document.getElementById('effectsBar');
   if(!bar)return;
 
@@ -1733,8 +1767,11 @@ function addEffect(name,icon,isConc,duration){
   // Don't double-add same spell
   if(window._activeEffects.find(e=>e.name===name))return;
 
+  // Resolve detail text for tooltip
+  const tip=detail||getEffectDetail(name)||'';
+
   const id=Date.now()+'_'+Math.random().toString(36).substr(2,4);
-  const effect={id,name,icon,conc:isConc,duration};
+  const effect={id,name,icon,conc:isConc,duration,tip};
   window._activeEffects.push(effect);
 
   // Determine style
@@ -1749,10 +1786,11 @@ function addEffect(name,icon,isConc,duration){
     durDisplay=duration.replace('Concentration, ','').replace('Conc ','');
   }
 
+  const tipHtml=tip?`<div class="eff-tip">${tip}</div>`:'';
   const el=document.createElement('div');
   el.className='eff '+cls;
   el.id='eff_'+id;
-  el.innerHTML=`${icon} ${name} <span class="eff-dur">${durDisplay}</span> <span class="eff-x" onclick="removeEffect('${id}')" title="Dismiss">×</span>`;
+  el.innerHTML=`${tipHtml}${icon} ${name} <span class="eff-dur">${durDisplay}</span> <span class="eff-x" onclick="removeEffect('${id}')" title="Dismiss">×</span>`;
   bar.appendChild(el);
 
   saveEffects();
@@ -1794,7 +1832,9 @@ function loadEffects(){
       const el=document.createElement('div');
       el.className='eff '+cls;
       el.id='eff_'+e.id;
-      el.innerHTML=`${e.icon} ${e.name} <span class="eff-dur">${durDisplay}</span> <span class="eff-x" onclick="removeEffect('${e.id}')" title="Dismiss">×</span>`;
+      const tip=e.tip||getEffectDetail(e.name)||'';
+      const tipHtml=tip?`<div class="eff-tip">${tip}</div>`:'';
+      el.innerHTML=`${tipHtml}${e.icon} ${e.name} <span class="eff-dur">${durDisplay}</span> <span class="eff-x" onclick="removeEffect('${e.id}')" title="Dismiss">×</span>`;
       bar.appendChild(el);
     });
   }catch(ex){}
