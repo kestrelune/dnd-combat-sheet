@@ -1402,7 +1402,7 @@ function useFeature(card){
   }
 
   // Features without dice and no special handling
-  if(!f.dice&&!name.includes('Warding Flare')&&!name.includes('Battle Medic')){
+  if(!f.dice&&!name.includes('Warding Flare')&&!name.includes('Battle Medic')&&!name.startsWith('CR: ')){
     parts.push(`<span class="cl-note">✓ Activated!</span>`);
   }
 
