@@ -294,12 +294,21 @@ async function parseChar(c){
 
   // Skill proficiencies
   const skillProfs=[];
+  const expertiseSkills=new Set();
   const SKILL_STAT={athletics:0,acrobatics:1,'sleight-of-hand':1,stealth:1,arcana:3,history:3,investigation:3,nature:3,religion:3,'animal-handling':4,insight:4,medicine:4,perception:4,survival:4,deception:5,intimidation:5,performance:5,persuasion:5};
+  // Detect expertise first
+  allMods.forEach(m=>{
+    if(m.type==='expertise'&&SKILL_STAT[m.subType]!==undefined){
+      expertiseSkills.add(m.subType);
+    }
+  });
   allMods.forEach(m=>{
     if(m.type==='proficiency'&&SKILL_STAT[m.subType]!==undefined){
       const si=SKILL_STAT[m.subType];
+      const isExpert=expertiseSkills.has(m.subType);
       const name=m.subType.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-      skillProfs.push({name,bonus:stats[si].mod+profBonus});
+      const bonus=stats[si].mod+(isExpert?profBonus*2:profBonus);
+      skillProfs.push({name,bonus,expertise:isExpert});
     }
   });
 
@@ -497,6 +506,20 @@ async function parseChar(c){
     features.bonus.splice(crIdx+1,0,...subOptions);
   }
 
+  // Weapon Mastery — parse modifier map: weaponName → masteryProperty
+  const weaponMasteryMap={};
+  const hasWeaponMastery=allMods.some(m=>m.type==='weapon-mastery');
+  allMods.filter(m=>m.type==='weapon-mastery').forEach(m=>{
+    // subType format: "sap-longsword", "vex-pistol", "cleave-greataxe"
+    const sub=m.subType||'';
+    const parts=sub.split('-');
+    if(parts.length>=2){
+      const mastery=parts[0]; // e.g. "sap"
+      const weaponName=parts.slice(1).join('-'); // e.g. "longsword"
+      weaponMasteryMap[weaponName.toLowerCase()]=mastery.toLowerCase();
+    }
+  });
+
   // Weapons
   const weapons=[];
   (c.inventory||[]).forEach(item=>{
@@ -531,6 +554,13 @@ async function parseChar(c){
     const dmgBonus=abilityMod+fightingStyleDmg+(def.magic?1:0);
     const dmgDice=`${dmg.diceCount}d${dmg.diceValue}`;
 
+    // Resolve mastery for this weapon — match by weapon base name
+    const weapNameLower=def.name.toLowerCase().replace(/^(silvered|adamantine|magical)\s+/,'');
+    const masteryProp=weaponMasteryMap[weapNameLower]||null;
+    // Also get the mastery property name from weapon properties (for display)
+    const masteryNames=['sap','vex','cleave','nick','push','topple','slow','graze'];
+    const weaponMasteryName=props.find(p=>masteryNames.includes(p.toLowerCase()))||null;
+
     weapons.push({
       name:def.name,
       equipped:!!item.equipped,
@@ -546,6 +576,8 @@ async function parseChar(c){
       properties:props,
       magic:def.magic||false,
       versatileDmg:isVersatile?`1d${dmg.diceValue+2}`:null,
+      mastery:masteryProp, // active mastery (only if character has Weapon Mastery feature)
+      masteryLabel:weaponMasteryName, // the property name on the weapon
     });
   });
 
@@ -986,12 +1018,16 @@ async function buildSheet(rawChar){
     c.weapons.filter(w=>w.equipped).forEach(w=>{
       const icon=w.ranged?'🏹':w.thrown?'🪓':'⚔️';
       const rangeStr=w.ranged?`${w.range}/${w.longRange}ft`:w.thrown?`${w.range}/${w.longRange}ft`:'Melee';
-      const propsStr=w.properties.filter(p=>!['Range','Ammunition (Firearms)'].includes(p)).join(', ');
+      // Filter mastery properties from display if character doesn't have weapon mastery
+      const masteryNames=['Sap','Vex','Cleave','Nick','Push','Topple','Slow','Graze'];
+      const displayProps=w.properties.filter(p=>!['Range','Ammunition (Firearms)'].includes(p)&&(w.mastery||!masteryNames.includes(p)));
+      const propsStr=displayProps.join(', ');
       const dmgBonusStr=w.dmgBonus>=0?'+'+w.dmgBonus:w.dmgBonus;
+      const masteryBadge=w.mastery?`<span class="slot" style="background:#4a2a6a;color:#cc88ff;margin-left:4px">${w.mastery.toUpperCase()}</span>`:'';
       html+=`<div class="a wide" data-weapon='${JSON.stringify(w).replace(/'/g,"&#39;")}' onclick="attackWeapon(this)" style="cursor:pointer">
-        <div class="top"><span class="ico">${icon}</span><span class="n">${w.name}${w.magic?' ✨':''}</span></div>
+        <div class="top"><span class="ico">${icon}</span><span class="n">${w.name}${w.magic?' ✨':''}</span>${masteryBadge}</div>
         <div class="bot"><span class="m">+${w.atkBonus} · ${w.dmgDice}${dmgBonusStr} · ${rangeStr}</span></div>
-        <div class="tt"><h3>${icon} ${w.name}</h3><div class="mt">+${w.atkBonus} to hit · ${w.dmgDice}${dmgBonusStr} ${w.dmgType} · ${rangeStr}</div>${propsStr?`<p>Properties: ${propsStr}</p>`:''}${w.versatileDmg?`<p>Versatile (two-handed): ${w.versatileDmg}${dmgBonusStr}</p>`:''}</div>
+        <div class="tt"><h3>${icon} ${w.name}</h3><div class="mt">+${w.atkBonus} to hit · ${w.dmgDice}${dmgBonusStr} ${w.dmgType} · ${rangeStr}</div>${propsStr?`<p>Properties: ${propsStr}</p>`:''}${w.mastery?`<p>⚔️ Mastery: <b>${w.mastery.charAt(0).toUpperCase()+w.mastery.slice(1)}</b> — ${getMasteryDesc(w.mastery)}</p>`:''}${w.versatileDmg?`<p>Versatile (two-handed): ${w.versatileDmg}${dmgBonusStr}</p>`:''}</div>
       </div>`;
     });
     html+=`</div>`;
@@ -1076,7 +1112,7 @@ async function buildSheet(rawChar){
   if(c.skillProfs.length){
     html+=`<div class="sh" style="margin-top:6px">Skills (proficient)</div>`;
     html+=`<div class="skills-line">`;
-    html+=c.skillProfs.map(s=>`<b>${s.name}</b> +${s.bonus}`).join(' · ');
+    html+=c.skillProfs.map(s=>s.expertise?`<b style="color:var(--gold)">★ ${s.name}</b> +${s.bonus}`:`<b>${s.name}</b> +${s.bonus}`).join(' · ');
     html+=`</div>`;
   }
   html+=`</div>`;
@@ -1208,6 +1244,19 @@ function featureCard(f){
   </div>`;
 }
 
+function getMasteryDesc(m){
+  const descs={
+    sap:'On hit, target has disadvantage on next attack roll.',
+    vex:'On hit, you have advantage on next attack against that target.',
+    cleave:'On hit, you can attack an adjacent creature (same roll, no dmg modifier).',
+    nick:'Extra light weapon attack as part of Attack action (not bonus action).',
+    push:'On hit, push target 10ft straight away (Large or smaller).',
+    topple:'On hit, target must make CON save or be knocked prone.',
+    slow:'On hit, target\'s speed reduced by 10ft until start of your next turn.',
+    graze:'On miss, deal ability modifier damage (min 0).',
+  };
+  return descs[m]||'';
+}
 function ordinal(n){const s=['th','st','nd','rd'];const v=n%100;return n+(s[(v-20)%10]||s[v]||s[0])}
 
 // ─── INTERACTIVITY ───
@@ -1487,11 +1536,38 @@ function attackWeapon(card){
 
         totalDmg+=dmg;
         parts.push(`<span class="cl-dmg">💥${dmg}</span>`);
+        const diceStr=`${dCount}d${dSides}: ${rolls.join('+')}`;
+        const modStr=w.dmgBonus?` | ${w.dmgBonus>0?'+':''}${w.dmgBonus} mod`:'';
+        parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
         parts.push(...extraParts);
         if(isNat20)parts.push(`<span class="cl-atk nat20">CRIT!</span>`);
+
+        // Weapon Mastery effects on hit
+        if(w.mastery){
+          const m=w.mastery;
+          if(m==='sap')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Sap: target has DISADVANTAGE on next attack</span>`);
+          if(m==='vex'){parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Vex: ADV on next attack vs target</span>`);addEffect('Vex ('+w.name+')','⚔️',false,'1 turn','Advantage on your next attack against this target before end of your next turn.');}
+          if(m==='push')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Push: target pushed 10ft</span>`);
+          if(m==='slow')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Slow: target speed −10ft</span>`);
+          if(m==='topple'){
+            const conSave=8+(c?._profBonus||2)+(c?._stats?.[0]?.mod||0);
+            parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Topple: target CON save DC ${conSave} or prone</span>`);
+          }
+          if(m==='cleave')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Cleave: can attack adjacent creature (same roll, no dmg mod)</span>`);
+          if(m==='nick')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Nick: extra attack available</span>`);
+        }
       }
     }else{
+      // Miss (nat 1 or regular miss handled above)
       parts.push(`<span class="cl-atk nat1">MISS!</span>`);
+      // Graze mastery: on miss, deal ability mod damage
+      if(w.mastery==='graze'){
+        const grazeDmg=Math.max(0,w.dmgBonus);
+        if(grazeDmg>0){
+          totalDmg+=grazeDmg;
+          parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Graze: ${grazeDmg} ${w.dmgType}</span>`);
+        }
+      }
     }
   }
 
