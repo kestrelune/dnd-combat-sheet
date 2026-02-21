@@ -480,6 +480,21 @@ async function parseChar(c){
     else features.actions.push(feat);
   });
 
+  // Synthesize Celestial Revelation sub-options (like Channel Divinity sub-actions)
+  const crIdx=features.bonus.findIndex(f=>f.name==='Celestial Revelation');
+  if(crIdx>=0){
+    const cr=features.bonus[crIdx];
+    const profB=profBonus;
+    const spd=c.race?.weightSpeeds?.normal?.walk||30;
+    const subOptions=[
+      {name:'CR: Heavenly Wings',description:`Fly speed ${spd}ft. +${profB} radiant damage once/turn on attack or spell.`,snippet:`🪽 Fly ${spd}ft, +${profB} radiant/turn`,activation:'Bonus Action',dice:'',range:'',limitedUse:null,saveDC:'',aoe:'',parentAbility:'Celestial Revelation'},
+      {name:'CR: Inner Radiance',description:`10ft bright light, 10ft dim. End of each turn, creatures within 10ft take ${profB} radiant. +${profB} radiant once/turn on attack or spell.`,snippet:`☀️ 10ft light, ${profB} radiant AoE/turn`,activation:'Bonus Action',dice:'',range:'',limitedUse:null,saveDC:`DC ${spellDC}`,aoe:'10ft emanation',parentAbility:'Celestial Revelation'},
+      {name:'CR: Necrotic Shroud',description:`Each creature within 15ft: CHA save DC ${spellDC} or Frightened until end of your next turn. +${profB} necrotic damage once/turn on attack or spell.`,snippet:`💀 15ft CHA save or Frightened, +${profB} necrotic/turn`,activation:'Bonus Action',dice:'',range:'',limitedUse:null,saveDC:`DC ${spellDC}`,aoe:'15ft emanation',parentAbility:'Celestial Revelation'},
+    ];
+    // Insert sub-options right after the parent
+    features.bonus.splice(crIdx+1,0,...subOptions);
+  }
+
   // Weapons
   const weapons=[];
   (c.inventory||[]).forEach(item=>{
@@ -1182,8 +1197,9 @@ function featureCard(f){
   if(f.aoe)meta.push(f.aoe);
   if(f.saveDC)meta.push(f.saveDC);
 
+  const icon=f.name==='CR: Heavenly Wings'?'🪽':f.name==='CR: Inner Radiance'?'☀️':f.name==='CR: Necrotic Shroud'?'💀':f.dice?'⚔️':'✦';
   return `<div class="a${f.limitedUse?' wide':''}" data-feat-name="${f.name}" onclick="useFeature(this)" style="cursor:pointer">
-    <div class="top"><span class="ico">${f.dice?'⚔️':'✦'}</span><span class="n">${f.name}</span>${pips.length?'<div class="pips">'+pips.join('')+'</div>':''}</div>
+    <div class="top"><span class="ico">${icon}</span><span class="n">${f.name}</span>${pips.length?'<div class="pips">'+pips.join('')+'</div>':''}</div>
     ${meta.length?`<div class="bot"><span class="m">${meta.join(' · ')}</span></div>`:''}
     <div class="tt"><h3>${f.name}</h3><div class="mt">${f.activation}${f.limitedUse?' · '+f.limitedUse.max+'/'+(f.limitedUse.resetType===1?'Short':'Long')+' Rest':''}</div><p>${resolveTemplates((f.snippet||f.description),window._char).substring(0,400)}</p></div>
   </div>`;
@@ -1304,27 +1320,33 @@ function useFeature(card){
     updateExhausted();
   }
 
-  // Celestial Revelation — pick a form
-  if(name.includes('Celestial Revelation')){
+  // Celestial Revelation sub-options — spend parent's pip and add effect
+  if(name.startsWith('CR: ')){
     const profBonus=c?._profBonus||2;
-    const options=['🪽 Heavenly Wings (fly speed, +radiant)','☀️ Inner Radiance (bright light, AoE radiant)','💀 Necrotic Shroud (WIS save or frightened, +necrotic)'];
-    const pick=prompt(`Celestial Revelation — choose form:\n1. ${options[0]}\n2. ${options[1]}\n3. ${options[2]}`,'1');
-    const idx=parseInt(pick);
-    if(idx===1){
-      parts.push(`<span class="cl-note">🪽 Heavenly Wings — fly speed ${c?.speed||30}ft, +${profBonus} radiant/turn</span>`);
+    // Spend the Celestial Revelation pip
+    const crPips=[...document.querySelectorAll('.pip[data-ability]')].filter(p=>{
+      const card=p.closest('.a');
+      return card&&card.dataset.featName==='Celestial Revelation';
+    });
+    const filledPip=crPips.filter(p=>p.classList.contains('f')).pop();
+    if(filledPip){
+      filledPip.classList.remove('f');
+    }else{
+      parts.push(`<span class="cl-save">⚠️ Already used Celestial Revelation this rest!</span>`);
+    }
+    if(name==='CR: Heavenly Wings'){
+      parts.push(`<span class="cl-note">🪽 Heavenly Wings — fly ${c?.speed||30}ft, +${profBonus} radiant/turn</span>`);
       addEffect('Heavenly Wings','🪽',false,'1 min');
-    }else if(idx===2){
+    }else if(name==='CR: Inner Radiance'){
       parts.push(`<span class="cl-note">☀️ Inner Radiance — 10ft bright light, +${profBonus} radiant AoE/turn</span>`);
       addEffect('Inner Radiance','☀️',false,'1 min');
-    }else if(idx===3){
+    }else if(name==='CR: Necrotic Shroud'){
       const spellDC=c?.spellDC||13;
       parts.push(`<span class="cl-save">⚠️ CHA save DC ${spellDC} or Frightened</span>`);
       parts.push(`<span class="cl-note">💀 Necrotic Shroud — +${profBonus} necrotic/turn</span>`);
       addEffect('Necrotic Shroud','💀',false,'1 min');
-    }else{
-      parts.push(`<span class="cl-note">✓ Transformed!</span>`);
-      addEffect('Celestial Revelation','✦',false,'1 min');
     }
+    updateExhausted();sv();
   }
 
   // Warding Flare
