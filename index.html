@@ -564,6 +564,28 @@ async function parseChar(c){
   const isWizard=className==='Wizard';
   const arcaneRecoverySlots=isWizard?Math.ceil(level/2):0;
 
+  // Sorcerer
+  const isSorcerer=className==='Sorcerer';
+  const sorceryPoints=isSorcerer?level:0;
+  // Metamagic options from class options
+  const metamagicOptions=[];
+  if(isSorcerer){
+    (c.options?.class||[]).forEach(opt=>{
+      const defn=opt.definition;
+      if(!defn)return;
+      const name=defn.name||'';
+      if(name.includes('Metamagic')||defn.description?.toLowerCase().includes('metamagic')){
+        // Extract the actual metamagic name
+        const cleanName=name.replace('Metamagic: ','').replace('Metamagic - ','');
+        const desc=stripHTML(defn.description||'');
+        // Detect sorcery point cost from description
+        const costMatch=desc.match(/(\d+) sorcery point/i);
+        const cost=costMatch?parseInt(costMatch[1]):1;
+        metamagicOptions.push({name:cleanName,cost,description:desc});
+      }
+    });
+  }
+
   // Items with limited uses (Healer's Kit, magic items with charges)
   const trackedItems=[];
   (c.inventory||[]).forEach(item=>{
@@ -627,8 +649,9 @@ async function parseChar(c){
     hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
     weapons,extraAttacks,
     sneakAttackDice,canSmite,rageDamage,
-    isKnownCaster,isWarlock,isRogue,isPaladin,isBarbarian,isMonk,isWizard,
+    isKnownCaster,isWarlock,isRogue,isPaladin,isBarbarian,isMonk,isWizard,isSorcerer,
     kiPoints,martialArtsDie,layOnHandsPool,arcaneRecoverySlots,
+    sorceryPoints,metamagicOptions,
     spellDC,spellAtk,spellMod,
     slotsByLevel,spells,features,trackedItems,
     // For template resolution
@@ -878,6 +901,14 @@ async function buildSheet(rawChar){
     }
     html+=`</div>`;
   }
+  // Sorcery Points (Sorcerer)
+  if(c.sorceryPoints){
+    html+=`<div class="slots" style="margin-left:8px"><span class="lbl">SP:</span>`;
+    html+=`<button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();decCounter(this)">−</button>`;
+    html+=`<span class="item-counter" data-max="${c.sorceryPoints}" data-item="sp" style="min-width:24px;text-align:center;font-weight:bold;color:#cc66ff">${c.sorceryPoints}</span>`;
+    html+=`<button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();incCounter(this)">+</button>`;
+    html+=`</div>`;
+  }
   // Lay on Hands (Paladin) — pool counter
   if(c.layOnHandsPool){
     html+=`<div class="slots" style="margin-left:8px"><span class="lbl">LoH:</span>`;
@@ -956,6 +987,19 @@ async function buildSheet(rawChar){
   if(c.features.reactions.length){
     html+=`<div class="sh" style="margin-top:4px"><span class="tag t-react">REACTION</span> Others' Turns</div><div class="card-grid">`;
     c.features.reactions.forEach(f=>{html+=featureCard(f)});
+    html+=`</div>`;
+  }
+
+  // Metamagic (Sorcerer)
+  if(c.metamagicOptions?.length){
+    html+=`<div class="sh" style="margin-top:4px"><span class="tag" style="background:#cc66ff;color:#000">META</span> Metamagic (spend SP)</div><div class="card-grid">`;
+    c.metamagicOptions.forEach(mm=>{
+      html+=`<div class="a" data-feat-name="Metamagic: ${mm.name}" onclick="useMetamagic('${mm.name}',${mm.cost})" style="cursor:pointer">
+        <div class="top"><span class="ico">✨</span><span class="n">${mm.name}</span></div>
+        <div class="bot"><span class="m">${mm.cost} SP</span></div>
+        <div class="tt"><h3>✨ ${mm.name}</h3><div class="mt">Metamagic · ${mm.cost} Sorcery Point${mm.cost>1?'s':''}</div><p>${mm.description.substring(0,300)}</p></div>
+      </div>`;
+    });
     html+=`</div>`;
   }
 
@@ -1375,6 +1419,22 @@ function smitePrompt(){
     log.innerHTML+=` <span class="cl-sep">+</span> <span class="cl-dmg" style="color:#ffd700">⚡ ${total} radiant</span> <span class="cl-detail">[${rolls.join('+')}] (${ordinal(lvl)} slot)</span>`;
   }
   sv();updateExhausted();
+}
+
+function useMetamagic(name,cost){
+  // Find the sorcery point counter and spend
+  const counter=document.querySelector('.item-counter[data-item="sp"]');
+  if(!counter){return}
+  let current=parseInt(counter.textContent);
+  if(current<cost){
+    const log=document.getElementById('combatLog');
+    if(log)log.innerHTML=`<span class="cl-save">⚠️ Not enough Sorcery Points! Need ${cost}, have ${current}</span>`;
+    return;
+  }
+  counter.textContent=current-cost;
+  const log=document.getElementById('combatLog');
+  if(log)log.innerHTML=`<span class="cl-icon">✨</span> <span class="cl-name">Metamagic: ${name}</span> <span class="cl-sep">→</span> <span class="cl-note">✓ Applied! (${cost} SP spent, ${current-cost} remaining)</span>`;
+  sv();
 }
 
 function castCantrip(card){
