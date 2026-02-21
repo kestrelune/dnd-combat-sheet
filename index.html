@@ -150,7 +150,8 @@ async function loadChar(){
     if(!r.ok)throw new Error(`HTTP ${r.status} — is the character public?`);
     const json=await r.json();
     const char=json.data||json;
-    buildSheet(char);
+    msg.innerHTML='<div class="loading">Parsing character & fetching subclass spells...</div>';
+    await buildSheet(char);
   }catch(e){msg.innerHTML=`<div class="err">${e.message}</div>`}
 }
 
@@ -158,7 +159,7 @@ async function loadChar(){
 document.getElementById('urlInput').addEventListener('keydown',e=>{if(e.key==='Enter')loadChar()});
 
 // ─── PARSER ───
-function parseChar(c){
+async function parseChar(c){
   // Base stats
   const baseStats=[];
   (c.stats||[]).forEach(s=>{baseStats[s.id]=s.value||10});
@@ -254,6 +255,64 @@ function parseChar(c){
     });
   }
 
+  // Parse domain/subclass spells from feature description HTML
+  const domainSpellNames=[];
+  const subcls=cls?.subclassDefinition;
+  if(subcls){
+    for(const feat of subcls.classFeatures||[]){
+      if(!feat.description||!feat.name?.toLowerCase().includes('spell'))continue;
+      // Parse table: <td>requiredLevel</td><td>Spell1, Spell2</td>
+      const rows=[...feat.description.matchAll(/<td>(\d+)<\/td>\s*<td>([^<]+)<\/td>/g)];
+      for(const [,reqLvl,spellList] of rows){
+        if(parseInt(reqLvl)<=level){
+          spellList.split(',').map(s=>s.trim()).filter(Boolean).forEach(name=>domainSpellNames.push(name));
+        }
+      }
+    }
+  }
+
+  // Fetch domain spells from Open5e SRD-2024
+  const domainSpellObjects=[];
+  if(domainSpellNames.length){
+    const fetches=domainSpellNames.map(async name=>{
+      try{
+        const encoded=encodeURIComponent(name);
+        const r=await fetch(`https://api.open5e.com/v2/spells/?name=${encoded}&document__key=srd-2024&limit=1`);
+        const data=await r.json();
+        const sp=data.results?.[0];
+        if(!sp||sp.name.toLowerCase()!==name.toLowerCase())return null;
+        // Build upcast info from casting_options
+        let upcastInfo=null;
+        if(sp.casting_options?.length){
+          const first=sp.casting_options[0];
+          if(first.damage_roll){
+            upcastInfo={perLevel:`→ ${first.damage_roll}`,type:''};
+          }else if(first.target_count){
+            upcastInfo={perLevel:`→ ${first.target_count} targets`,type:''};
+          }
+        }
+        return{
+          name:sp.name,
+          level:sp.level,
+          concentration:sp.concentration,
+          range:sp.range===0?sp.shape_size?'Self ('+sp.shape_size+'ft '+sp.shape_type+')':'Self':sp.range+'ft',
+          activation:sp.casting_time==='bonus_action'?'Bonus Action':sp.casting_time==='reaction'?'Reaction':'Action',
+          description:sp.desc,
+          duration:sp.duration||'',
+          damage:sp.damage_roll||'',
+          saveDC:sp.save_ability?`DC ${spellDC}`:'',
+          attackRoll:sp.attack_roll?`+${spellAtk}`:'',
+          prepared:true,
+          alwaysPrepared:true,
+          canUpcast:sp.casting_options?.length>0,
+          upcastInfo,
+        };
+      }catch(e){return null}
+    });
+    const results=await Promise.all(fetches);
+    results.filter(Boolean).forEach(sp=>domainSpellObjects.push(sp));
+  }
+
   // Spells
   const spells={cantrips:[],leveled:[]};
   const allSpells=[...(c.spells?.race||[]),...(c.spells?.class||[]),...(c.classSpells?.[0]?.spells||[]),...(c.spells?.feat||[])];
@@ -285,6 +344,14 @@ function parseChar(c){
     if(def.level===0)spells.cantrips.push(spell);
     else if(spell.prepared)spells.leveled.push(spell);
   });
+  // Add domain/subclass spells (always prepared, deduplicated)
+  domainSpellObjects.forEach(sp=>{
+    if(!seen.has(sp.name)){
+      seen.add(sp.name);
+      spells.leveled.push(sp);
+    }
+  });
+
   spells.leveled.sort((a,b)=>a.level-b.level);
 
   // Actions/Features
@@ -467,8 +534,8 @@ function spellIcon(spell){
 }
 
 // ─── RENDERER ───
-function buildSheet(rawChar){
-  const c=parseChar(rawChar);
+async function buildSheet(rawChar){
+  const c=await parseChar(rawChar);
   document.getElementById('loader').style.display='none';
   const sheet=document.getElementById('sheet');
   sheet.style.display='block';
@@ -696,7 +763,7 @@ function spellCard(sp,c){
 
   return `<div class="a${isCantrip?'':' castable'}" ${isCantrip?'':`data-min-lvl="${sp.level}" onclick="castSpell(this)"`}>
     <div class="top"><span class="ico">${ico}</span><span class="n">${sp.name}</span></div>
-    <div class="bot"><span class="m">${meta.join(' · ')}</span>${sp.concentration?'<span class="conc">CONC</span>':''}</div>
+    <div class="bot"><span class="m">${meta.join(' · ')}</span>${sp.concentration?'<span class="conc">CONC</span>':''}${sp.alwaysPrepared?'<span class="slot" style="background:#553355;color:#cc88ff">DOMAIN</span>':''}</div>
     <div class="tt">${ttParts.join('')}</div>
     ${isCantrip?'':`<div class="lvl-pick"><span class="lp-label">Cast at:</span>${lvlBtns}</div>`}
   </div>`;
