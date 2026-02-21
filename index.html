@@ -457,6 +457,12 @@ async function parseChar(c){
 
   spells.leveled.sort((a,b)=>a.level-b.level);
 
+  // Scale values (for template resolution) — must be before Actions/Features
+  const scaleValues={};
+  (cls?.classFeatures||[]).forEach(f=>{
+    if(f.levelScale?.fixedValue!=null)scaleValues[f.definition?.name||'']=f.levelScale.fixedValue;
+  });
+
   // Actions/Features
   const features={actions:[],bonus:[],reactions:[],passive:[]};
   const allActions=[...(c.actions?.race||[]),...(c.actions?.class||[]),...(c.actions?.feat||[])];
@@ -580,12 +586,6 @@ async function parseChar(c){
       mastery:masteryProp, // active mastery (only if character has Weapon Mastery feature)
       masteryLabel:weaponMasteryName, // the property name on the weapon
     });
-  });
-
-  // Scale values (for template resolution)
-  const scaleValues={};
-  (cls?.classFeatures||[]).forEach(f=>{
-    if(f.levelScale?.fixedValue!=null)scaleValues[f.definition?.name||'']=f.levelScale.fixedValue;
   });
 
   // Monk: add unarmed strike as weapon
