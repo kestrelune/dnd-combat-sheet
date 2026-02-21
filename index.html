@@ -146,7 +146,7 @@ async function loadChar(){
   const id=match[1];
   msg.innerHTML='<div class="loading">Loading character...</div>';
   try{
-    const r=await fetch(`https://character-service.dndbeyond.com/character/v5/character/${id}`);
+    const r=await fetch(`https://corsproxy.io/?https://character-service.dndbeyond.com/character/v5/character/${id}`);
     if(!r.ok)throw new Error(`HTTP ${r.status} — is the character public?`);
     const json=await r.json();
     const char=json.data||json;
