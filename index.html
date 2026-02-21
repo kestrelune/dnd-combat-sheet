@@ -289,7 +289,9 @@ function parseChar(c){
   // Actions/Features
   const features={actions:[],bonus:[],reactions:[],passive:[]};
   const allActions=[...(c.actions?.race||[]),...(c.actions?.class||[]),...(c.actions?.feat||[])];
-  allActions.forEach(a=>{
+  // Filter out noise: Circle Spells, duplicate Channel Divinity sub-entries
+  const filterOut=['Circle Spell:','Initiate a Circle'];
+  allActions.filter(a=>!filterOut.some(f=>a.name.startsWith(f))).forEach(a=>{
     const feat={
       name:a.name,
       description:stripHTML(a.description),
