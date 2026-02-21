@@ -500,13 +500,18 @@ async function parseChar(c){
     if(isFinesse)abilityMod=Math.max(stats[0].mod,stats[1].mod); // STR or DEX
     else if(isRanged)abilityMod=stats[1].mod; // DEX
     else abilityMod=stats[0].mod; // STR
-    // Check for Dueling fighting style (+2 dmg if one-handed w/ shield)
-    const hasDueling=allMods.some(m=>m.friendlySubtypeName==='Dueling'||m.friendlyTypeName==='Dueling');
+    // Check for fighting style damage bonuses from modifiers
+    // Dueling: +2 to one-handed melee damage (feat modifier: sub=one-handed-melee-attacks, value=2)
+    // Archery: +2 to ranged attack rolls (feat modifier: sub=ranged-weapon-attacks, value=2)
+    const oneHandedBonus=allMods.filter(m=>m.type==='damage'&&(m.subType||'').includes('one-handed-melee')).reduce((s,m)=>s+(m.value||0),0);
+    const archeryBonus=allMods.filter(m=>m.type==='bonus'&&(m.subType||'').includes('ranged-weapon-attack')).reduce((s,m)=>s+(m.value||0),0);
     const hasShield=(c.inventory||[]).some(i=>i.equipped&&i.definition?.armorTypeId===4);
-    const duelingBonus=(hasDueling&&isMelee&&hasShield&&!isVersatile)?2:0; // simplified: if shield equipped = one-handing
+    // Apply: one-handed melee bonus if melee + not two-handing (simplified: if shield = one-handing)
+    const fightingStyleDmg=(isMelee&&hasShield)?oneHandedBonus:0;
+    const fightingStyleAtk=isRanged?archeryBonus:0;
 
-    const atkBonus=abilityMod+profBonus+(def.magic?1:0); // magic weapons typically +1
-    const dmgBonus=abilityMod+duelingBonus+(def.magic?1:0);
+    const atkBonus=abilityMod+profBonus+(def.magic?1:0)+fightingStyleAtk;
+    const dmgBonus=abilityMod+fightingStyleDmg+(def.magic?1:0);
     const dmgDice=`${dmg.diceCount}d${dmg.diceValue}`;
 
     weapons.push({
@@ -949,7 +954,7 @@ async function buildSheet(rawChar){
       const rangeStr=w.ranged?`${w.range}/${w.longRange}ft`:w.thrown?`${w.range}/${w.longRange}ft`:'Melee';
       const propsStr=w.properties.filter(p=>!['Range','Ammunition (Firearms)'].includes(p)).join(', ');
       const dmgBonusStr=w.dmgBonus>=0?'+'+w.dmgBonus:w.dmgBonus;
-      html+=`<div class="a wide" data-weapon='${JSON.stringify(w).replace(/'/g,"\\'")}' onclick="attackWeapon(this)" style="cursor:pointer">
+      html+=`<div class="a wide" data-weapon='${JSON.stringify(w).replace(/'/g,"&#39;")}' onclick="attackWeapon(this)" style="cursor:pointer">
         <div class="top"><span class="ico">${icon}</span><span class="n">${w.name}${w.magic?' ✨':''}</span></div>
         <div class="bot"><span class="m">+${w.atkBonus} · ${w.dmgDice}${dmgBonusStr} · ${rangeStr}</span></div>
         <div class="tt"><h3>${icon} ${w.name}</h3><div class="mt">+${w.atkBonus} to hit · ${w.dmgDice}${dmgBonusStr} ${w.dmgType} · ${rangeStr}</div>${propsStr?`<p>Properties: ${propsStr}</p>`:''}${w.versatileDmg?`<p>Versatile (two-handed): ${w.versatileDmg}${dmgBonusStr}</p>`:''}</div>
