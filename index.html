@@ -459,11 +459,61 @@ async function parseChar(c){
     else features.actions.push(feat);
   });
 
+  // Weapons
+  const weapons=[];
+  (c.inventory||[]).forEach(item=>{
+    const def=item.definition;
+    if(!def||def.filterType!=='Weapon')return;
+    if(!item.equipped&&!item.quantity)return;
+    const dmg=def.damage;
+    if(!dmg)return;
+    // attackType: 1=melee(STR), 2=ranged(DEX)
+    const isMelee=def.attackType===1;
+    const isRanged=def.attackType===2;
+    const props=(def.properties||[]).map(p=>p.name||'');
+    const isFinesse=props.some(p=>p.toLowerCase().includes('finesse'));
+    const isVersatile=props.some(p=>p.toLowerCase().includes('versatile'));
+    const isThrown=props.some(p=>p.toLowerCase().includes('thrown'));
+    // Determine ability mod
+    let abilityMod;
+    if(isFinesse)abilityMod=Math.max(stats[0].mod,stats[1].mod); // STR or DEX
+    else if(isRanged)abilityMod=stats[1].mod; // DEX
+    else abilityMod=stats[0].mod; // STR
+    // Check for Dueling fighting style (+2 dmg if one-handed w/ shield)
+    const hasDueling=allMods.some(m=>m.friendlySubtypeName==='Dueling'||m.friendlyTypeName==='Dueling');
+    const hasShield=(c.inventory||[]).some(i=>i.equipped&&i.definition?.armorTypeId===4);
+    const duelingBonus=(hasDueling&&isMelee&&hasShield&&!isVersatile)?2:0; // simplified: if shield equipped = one-handing
+
+    const atkBonus=abilityMod+profBonus+(def.magic?1:0); // magic weapons typically +1
+    const dmgBonus=abilityMod+duelingBonus+(def.magic?1:0);
+    const dmgDice=`${dmg.diceCount}d${dmg.diceValue}`;
+
+    weapons.push({
+      name:def.name,
+      equipped:!!item.equipped,
+      melee:isMelee,
+      ranged:isRanged,
+      thrown:isThrown,
+      atkBonus,
+      dmgDice,
+      dmgBonus,
+      dmgType:def.damageType||(isMelee?'slashing':'piercing'),
+      range:def.range||5,
+      longRange:def.longRange||def.range||5,
+      properties:props,
+      magic:def.magic||false,
+      versatileDmg:isVersatile?`1d${dmg.diceValue+2}`:null,
+    });
+  });
+
   // Scale values (for template resolution)
   const scaleValues={};
   (cls?.classFeatures||[]).forEach(f=>{
     if(f.levelScale?.fixedValue!=null)scaleValues[f.definition?.name||'']=f.levelScale.fixedValue;
   });
+
+  // Extra Attack count
+  const extraAttacks=scaleValues['Extra Attack']||1; // default 1 attack
 
   // Items with limited uses (Healer's Kit, magic items with charges)
   const trackedItems=[];
@@ -526,6 +576,7 @@ async function parseChar(c){
     speed:c.race?.weightSpeeds?.normal?.walk||30,
     saveProficiencies,skillProfs,passives,
     hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
+    weapons,extraAttacks,
     spellDC,spellAtk,spellMod,
     slotsByLevel,spells,features,trackedItems,
     // For template resolution
@@ -693,7 +744,8 @@ async function buildSheet(rawChar){
   [...c.spells.cantrips,...c.spells.leveled].forEach(sp=>{
     window._spellData[sp.name]=sp;
   });
-  // Feature data map
+  // Weapon + Feature data maps
+  window._weapons=c.weapons;
   window._featureData={};
   [...c.features.actions,...c.features.bonus,...c.features.reactions].forEach(f=>{
     window._featureData[f.name]=f;
@@ -729,8 +781,12 @@ async function buildSheet(rawChar){
     <div class="st"><div class="l">Init</div><div class="v">${c.stats[1].mod>=0?'+':''}${c.stats[1].mod}</div></div>
     <div class="st"><div class="l">Spd</div><div class="v">${c.speed}</div></div>
     <div class="st"><div class="l">Prof</div><div class="v">+${c.profBonus}</div></div>
-    <div class="st"><div class="l">DC</div><div class="v">${c.spellDC}</div></div>
-    <div class="st"><div class="l">Atk</div><div class="v">+${c.spellAtk}</div></div>`;
+`;
+  const hasSpells=c.spells.cantrips.length||c.spells.leveled.length;
+  if(hasSpells){
+    html+=`<div class="st"><div class="l">DC</div><div class="v">${c.spellDC}</div></div>
+    <div class="st"><div class="l">Spell Atk</div><div class="v">+${c.spellAtk}</div></div>`;
+  }
   c.stats.forEach(s=>{
     const isProf=c.saveProficiencies.has(s.name);
     html+=`<div class="st${isProf?' prof':''}"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${s.mod>=0?'+':''}${s.mod}</div></div>`;
@@ -766,7 +822,24 @@ async function buildSheet(rawChar){
 
   // COL 1: ACTIONS
   html+=`<div class="col">`;
-  html+=`<div class="sh"><span class="tag t-act">ACTION</span> Your Turn</div>`;
+  html+=`<div class="sh"><span class="tag t-act">ACTION</span> Your Turn${c.extraAttacks>1?` <span class="cl-detail">(${c.extraAttacks} attacks)</span>`:''}</div>`;
+
+  // Weapons
+  if(c.weapons.length){
+    html+=`<div class="sh2">— Weapon Attacks —</div><div class="card-grid">`;
+    c.weapons.filter(w=>w.equipped).forEach(w=>{
+      const icon=w.ranged?'🏹':w.thrown?'🪓':'⚔️';
+      const rangeStr=w.ranged?`${w.range}/${w.longRange}ft`:w.thrown?`${w.range}/${w.longRange}ft`:'Melee';
+      const propsStr=w.properties.filter(p=>!['Range','Ammunition (Firearms)'].includes(p)).join(', ');
+      const dmgBonusStr=w.dmgBonus>=0?'+'+w.dmgBonus:w.dmgBonus;
+      html+=`<div class="a wide" data-weapon='${JSON.stringify(w).replace(/'/g,"\\'")}' onclick="attackWeapon(this)" style="cursor:pointer">
+        <div class="top"><span class="ico">${icon}</span><span class="n">${w.name}${w.magic?' ✨':''}</span></div>
+        <div class="bot"><span class="m">+${w.atkBonus} · ${w.dmgDice}${dmgBonusStr} · ${rangeStr}</span></div>
+        <div class="tt"><h3>${icon} ${w.name}</h3><div class="mt">+${w.atkBonus} to hit · ${w.dmgDice}${dmgBonusStr} ${w.dmgType} · ${rangeStr}</div>${propsStr?`<p>Properties: ${propsStr}</p>`:''}${w.versatileDmg?`<p>Versatile (two-handed): ${w.versatileDmg}${dmgBonusStr}</p>`:''}</div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
 
   // Cantrips
   if(c.spells.cantrips.length){
@@ -1091,6 +1164,62 @@ function useFeature(card){
   if(descLow.includes('frightened'))parts.push(`<span class="cl-note">→ Frightened!</span>`);
   if(descLow.includes('advantage'))parts.push(`<span class="cl-note">→ Advantage!</span>`);
   if(descLow.includes('disadvantage')&&!name.includes('Warding Flare'))parts.push(`<span class="cl-note">→ Disadvantage!</span>`);
+
+  log.innerHTML=parts.join(' ');
+  card.classList.add('cast-flash');
+  setTimeout(()=>card.classList.remove('cast-flash'),400);
+}
+
+function attackWeapon(card){
+  const w=JSON.parse(card.dataset.weapon);
+  const log=document.getElementById('combatLog');
+  if(!log)return;
+  const c=window._char;
+  const icon=w.ranged?'🏹':w.thrown?'🪓':'⚔️';
+  const numAttacks=c?.extraAttacks||1;
+  let parts=[];
+
+  parts.push(`<span class="cl-icon">${icon}</span>`);
+  parts.push(`<span class="cl-name">${w.name}</span>`);
+  if(numAttacks>1)parts.push(`<span class="cl-detail">(${numAttacks} attacks)</span>`);
+
+  let totalDmg=0;
+  for(let i=0;i<numAttacks;i++){
+    if(i>0)parts.push(`<span class="cl-sep">|</span>`);
+    const d20=rollDice(1,20)[0];
+    const atkTotal=d20+w.atkBonus;
+    const isNat20=d20===20;
+    const isNat1=d20===1;
+
+    let atkCls='cl-atk';
+    if(isNat20)atkCls+=' nat20';
+    else if(isNat1)atkCls+=' nat1';
+    else atkCls+=(atkTotal>=15?' hit':' miss');
+
+    parts.push(`<span class="${atkCls}">🎯${atkTotal}</span>`);
+
+    if(!isNat1){
+      // Roll damage
+      const dmgMatch=w.dmgDice.match(/(\d+)d(\d+)/);
+      if(dmgMatch){
+        let dCount=parseInt(dmgMatch[1]);
+        const dSides=parseInt(dmgMatch[2]);
+        if(isNat20)dCount*=2; // crit = double dice
+        const rolls=rollDice(dCount,dSides);
+        const dmg=rolls.reduce((a,b)=>a+b,0)+w.dmgBonus;
+        totalDmg+=dmg;
+        parts.push(`<span class="cl-dmg">💥${dmg}</span>`);
+        if(isNat20)parts.push(`<span class="cl-atk nat20">CRIT!</span>`);
+      }
+    }else{
+      parts.push(`<span class="cl-atk nat1">MISS!</span>`);
+    }
+  }
+
+  if(numAttacks>1){
+    parts.push(`<span class="cl-sep">=</span>`);
+    parts.push(`<span class="cl-dmg" style="font-size:18px">⚔️ ${totalDmg} total</span>`);
+  }
 
   log.innerHTML=parts.join(' ');
   card.classList.add('cast-flash');
