@@ -291,17 +291,34 @@ async function parseChar(c){
             upcastInfo={perLevel:`→ ${first.target_count} targets`,type:''};
           }
         }
+        // Detect save from description if save_ability is missing
+        const descLower=(sp.desc||'').toLowerCase();
+        const hasSave=sp.save_ability||/saving throw/.test(descLower);
+        const hasRealAttack=sp.attack_roll&&sp.damage_roll&&!hasSave;
+        // Detect key effects from description for meta
+        const hasAdv=/advantage/.test(descLower);
+
+        // Build smart range string
+        let rangeStr='';
+        if(sp.range===0||sp.range==='0'){
+          rangeStr=sp.shape_size?`${sp.shape_size}ft ${sp.shape_type||''}`:'Self';
+        }else{
+          rangeStr=sp.range+'ft';
+          if(sp.shape_size)rangeStr+=` · ${sp.shape_size}ft ${sp.shape_type||''}`;
+        }
+
         return{
           name:sp.name,
           level:sp.level,
           concentration:sp.concentration,
-          range:sp.range===0?sp.shape_size?'Self ('+sp.shape_size+'ft '+sp.shape_type+')':'Self':sp.range+'ft',
+          range:rangeStr.trim(),
           activation:sp.casting_time==='bonus_action'?'Bonus Action':sp.casting_time==='reaction'?'Reaction':'Action',
           description:sp.desc,
           duration:sp.duration||'',
           damage:sp.damage_roll||'',
-          saveDC:sp.save_ability?`DC ${spellDC}`:'',
-          attackRoll:sp.attack_roll?`+${spellAtk}`:'',
+          saveDC:hasSave?`DC ${spellDC}`:'',
+          attackRoll:hasRealAttack?`+${spellAtk}`:'',
+          shortMeta:hasAdv?'Adv atks':'',
           prepared:true,
           alwaysPrepared:true,
           canUpcast:sp.casting_options?.length>0,
@@ -420,6 +437,19 @@ async function parseChar(c){
     }
   });
 
+  // Passives (resistances, immunities, senses)
+  const passives=[];
+  const passiveSeen=new Set();
+  allMods.forEach(m=>{
+    const name=m.friendlySubtypeName||m.friendlyTypeName||'';
+    if(!name||passiveSeen.has(name))return;
+    if(m.type==='resistance'){passiveSeen.add(name);passives.push({name:`Resist ${name}`,detail:'½ dmg',icon:'🛡️'})}
+    else if(m.type==='immunity'){passiveSeen.add(name);passives.push({name:`Immune ${name}`,detail:'0 dmg',icon:'🛡️'})}
+    else if(m.type==='sense'){passiveSeen.add(name);passives.push({name,detail:m.value?m.value+'ft':'',icon:'👁️'})}
+  });
+  const percProf=skillProfs.find(s=>s.name==='Perception');
+  passives.push({name:'Passive Perception',detail:''+(10+(percProf?percProf.bonus:stats[4].mod)),icon:'👂'});
+
   const raceName=c.race?.fullName||c.race?.baseName||'Unknown';
 
   return{
@@ -429,7 +459,7 @@ async function parseChar(c){
     stats,ac,
     hp:{current:currentHP,max:maxHP},
     speed:c.race?.weightSpeeds?.normal?.walk||30,
-    saveProficiencies,skillProfs,
+    saveProficiencies,skillProfs,passives,
     hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
     spellDC,spellAtk,spellMod,
     slotsByLevel,spells,features,trackedItems,
@@ -651,6 +681,15 @@ async function buildSheet(rawChar){
     html+=`</div>`;
   }
 
+  // Passives
+  if(c.passives.length){
+    html+=`<div class="sh" style="margin-top:4px"><span class="tag t-free">PASSIVE</span> Always On</div><div class="card-grid">`;
+    c.passives.forEach(p=>{
+      html+=`<div class="a"><div class="top"><span class="ico">${p.icon}</span><span class="n">${p.name}</span></div>${p.detail?`<div class="bot"><span class="m">${p.detail}</span></div>`:''}</div>`;
+    });
+    html+=`</div>`;
+  }
+
   // Saves
   html+=`<div class="sh" style="margin-top:6px">Saving Throws</div>`;
   html+=`<div style="display:flex;flex-wrap:wrap;gap:2px">`;
@@ -740,6 +779,7 @@ function spellCard(sp,c){
   const ico=spellIcon(sp);
   const isCantrip=sp.level===0;
   const meta=[];
+  if(sp.shortMeta)meta.push(sp.shortMeta);
   if(sp.range)meta.push(sp.range);
   if(sp.damage)meta.push(sp.damage);
   if(sp.attackRoll)meta.push(sp.attackRoll);
