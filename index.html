@@ -1304,6 +1304,29 @@ function useFeature(card){
     updateExhausted();
   }
 
+  // Celestial Revelation — pick a form
+  if(name.includes('Celestial Revelation')){
+    const profBonus=c?._profBonus||2;
+    const options=['🪽 Heavenly Wings (fly speed, +radiant)','☀️ Inner Radiance (bright light, AoE radiant)','💀 Necrotic Shroud (WIS save or frightened, +necrotic)'];
+    const pick=prompt(`Celestial Revelation — choose form:\n1. ${options[0]}\n2. ${options[1]}\n3. ${options[2]}`,'1');
+    const idx=parseInt(pick);
+    if(idx===1){
+      parts.push(`<span class="cl-note">🪽 Heavenly Wings — fly speed ${c?.speed||30}ft, +${profBonus} radiant/turn</span>`);
+      addEffect('Heavenly Wings','🪽',false,'1 min');
+    }else if(idx===2){
+      parts.push(`<span class="cl-note">☀️ Inner Radiance — 10ft bright light, +${profBonus} radiant AoE/turn</span>`);
+      addEffect('Inner Radiance','☀️',false,'1 min');
+    }else if(idx===3){
+      const spellDC=c?.spellDC||13;
+      parts.push(`<span class="cl-save">⚠️ CHA save DC ${spellDC} or Frightened</span>`);
+      parts.push(`<span class="cl-note">💀 Necrotic Shroud — +${profBonus} necrotic/turn</span>`);
+      addEffect('Necrotic Shroud','💀',false,'1 min');
+    }else{
+      parts.push(`<span class="cl-note">✓ Transformed!</span>`);
+      addEffect('Celestial Revelation','✦',false,'1 min');
+    }
+  }
+
   // Warding Flare
   if(name.includes('Warding Flare')){
     parts.push(`<span class="cl-save">⚠️ Attacker has DISADVANTAGE</span>`);
