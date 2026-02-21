@@ -367,6 +367,10 @@ async function parseChar(c){
           alwaysPrepared:true,
           canUpcast:sp.casting_options?.length>0,
           upcastInfo,
+          saveStat:detectSaveStatFromDesc(descLower),
+          spellMods:[],
+          healDice:null,
+          effectNotes:buildEffectNotesFromDesc(sp.name,descLower),
         };
       }catch(e){return null}
     });
@@ -383,6 +387,19 @@ async function parseChar(c){
     const def=s.definition;
     if(!def||seen.has(def.name))return;
     seen.add(def.name);
+    // Extract modifiers for smart combat log
+    const spellMods=(def.modifiers||[]).map(m=>({type:m.type,sub:m.subType,val:m.value,die:m.die}));
+    // Detect save stat from description
+    const descText=stripHTML(def.description);
+    const descLow=descText.toLowerCase();
+    let saveStat='';
+    const saveStatMatch=descLow.match(/(strength|dexterity|constitution|intelligence|wisdom|charisma) sav/);
+    if(saveStatMatch)saveStat=saveStatMatch[1].substring(0,3).toUpperCase();
+    // Healing
+    const healDice=def.healingDice;
+    // Build effect summary for combat log
+    const effectNotes=buildEffectNotes(def.name,spellMods,descLow);
+
     const spell={
       name:def.name,
       level:def.level,
@@ -391,7 +408,7 @@ async function parseChar(c){
       ritual:def.ritual,
       range:formatRange(def.range),
       activation:ACTIVATION_TYPES[def.activation?.activationType]||'Action',
-      description:stripHTML(def.description),
+      description:descText,
       components:def.componentsDescription,
       duration:formatDuration(def.duration),
       canUpcast:def.canCastAtHigherLevel,
@@ -401,6 +418,10 @@ async function parseChar(c){
       saveDC:def.requiresSavingThrow?`DC ${spellDC}`:'',
       attackRoll:def.requiresAttackRoll?`+${spellAtk}`:'',
       upcastInfo:extractUpcast(def),
+      saveStat,
+      spellMods,
+      healDice,
+      effectNotes,
     };
     if(def.level===0)spells.cantrips.push(spell);
     else if(spell.prepared)spells.leveled.push(spell);
@@ -542,6 +563,55 @@ function extractUpcast(def){
   return null;
 }
 
+function detectSaveStatFromDesc(descLow){
+  const m=descLow.match(/(strength|dexterity|constitution|intelligence|wisdom|charisma) sav/);
+  return m?m[1].substring(0,3).toUpperCase():'';
+}
+
+function buildEffectNotesFromDesc(name,descLow){
+  const notes=[];
+  if(descLow.includes('advantage'))notes.push('Grants advantage');
+  if(descLow.includes('can\'t benefit from the invisible')||descLow.includes('can\'t be invisible'))notes.push('Reveals invisible');
+  if(descLow.includes('see invisible'))notes.push('See invisible + Ethereal');
+  if(descLow.includes('frightened'))notes.push('Frightened');
+  if(descLow.includes('blinded'))notes.push('Blinded');
+  return notes;
+}
+
+// Build smart effect notes from spell modifiers and description
+function buildEffectNotes(name,mods,descLow){
+  const notes=[];
+  const n=name.toLowerCase();
+  // Check modifiers
+  const hasBonusAtk=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('attack'));
+  const hasBonusSave=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('saving'));
+  const hasBonusAC=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('armor-class'));
+  const hasBonusCheck=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('ability-check'));
+  const hasBonusHP=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('hit-point'));
+  const hasAdvAtk=mods.some(m=>m.type==='advantage'&&(m.sub||'').includes('attack'));
+  const hasDmg=mods.some(m=>m.type==='damage');
+
+  if(hasBonusAtk&&hasBonusSave)notes.push('+d4 attacks & saves');
+  else if(hasBonusAtk)notes.push('+d4 attacks');
+  else if(hasBonusSave)notes.push('+d4 saves');
+  if(hasBonusAC)notes.push('+2 AC');
+  if(hasBonusCheck)notes.push('+d4 ability check');
+  if(hasBonusHP&&!hasDmg)notes.push('Healing');
+  if(hasAdvAtk)notes.push('Next atk has ADV');
+
+  // Description-based detection
+  if(descLow.includes('advantage')&&!hasAdvAtk&&!hasBonusAtk)notes.push('Grants advantage');
+  if(descLow.includes('disadvantage')&&!n.includes('bane'))notes.push('Imposes disadvantage');
+  if(descLow.includes('frightened'))notes.push('Frightened');
+  if(descLow.includes('can\'t be invisible')||descLow.includes('cannot be invisible'))notes.push('Reveals invisible');
+  if(descLow.includes('see invisible'))notes.push('See invisible + Ethereal');
+  if(descLow.includes('blinded'))notes.push('Blinded');
+  // Bane specifically subtracts
+  if(n.includes('bane'))notes.push('-d4 attacks & saves');
+
+  return notes;
+}
+
 // Resolve D&D Beyond template placeholders like {{modifier:wis}}, {{scalevalue}}, {{proficiency#signed}}
 function resolveTemplates(text, charData){
   if(!text||!charData)return text;
@@ -622,6 +692,11 @@ async function buildSheet(rawChar){
   window._spellData={};
   [...c.spells.cantrips,...c.spells.leveled].forEach(sp=>{
     window._spellData[sp.name]=sp;
+  });
+  // Feature data map
+  window._featureData={};
+  [...c.features.actions,...c.features.bonus,...c.features.reactions].forEach(f=>{
+    window._featureData[f.name]=f;
   });
 
   let html='';
@@ -883,7 +958,7 @@ function featureCard(f){
   if(f.aoe)meta.push(f.aoe);
   if(f.saveDC)meta.push(f.saveDC);
 
-  return `<div class="a${f.limitedUse?' wide':''}">
+  return `<div class="a${f.limitedUse?' wide':''}" data-feat-name="${f.name}" onclick="useFeature(this)" style="cursor:pointer">
     <div class="top"><span class="ico">${f.dice?'⚔️':'✦'}</span><span class="n">${f.name}</span>${pips.length?'<div class="pips">'+pips.join('')+'</div>':''}</div>
     ${meta.length?`<div class="bot"><span class="m">${meta.join(' · ')}</span></div>`:''}
     <div class="tt"><h3>${f.name}</h3><div class="mt">${f.activation}${f.limitedUse?' · '+f.limitedUse.max+'/'+(f.limitedUse.resetType===1?'Short':'Long')+' Rest':''}</div><p>${resolveTemplates((f.snippet||f.description),window._char).substring(0,400)}</p></div>
@@ -949,6 +1024,79 @@ function spend(btn,lvl){
   sv();updateExhausted();
 }
 
+function useFeature(card){
+  const name=card.dataset.featName;
+  const f=window._featureData?.[name];
+  if(!f)return;
+  const log=document.getElementById('combatLog');
+  if(!log)return;
+  const c=window._char;
+  let parts=[];
+  const descLow=(f.description||'').toLowerCase();
+
+  parts.push(`<span class="cl-icon">✦</span>`);
+  parts.push(`<span class="cl-name">${f.name}</span>`);
+  parts.push(`<span class="cl-sep">→</span>`);
+
+  // Roll dice if feature has them
+  if(f.dice){
+    const m=f.dice.match(/(\d+)d(\d+)([+\-]\d+)?/);
+    if(m){
+      const rolls=rollDice(parseInt(m[1]),parseInt(m[2]));
+      const bonus=parseInt(m[3]||'0');
+      const total=rolls.reduce((a,b)=>a+b,0)+bonus;
+      const bonusStr=bonus?`+${bonus}`:'';
+
+      if(descLow.includes('heal')||descLow.includes('regain')){
+        parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 ${total} HP</span>`);
+      }else if(f.saveDC){
+        parts.push(`<span class="cl-save">⚠️ TARGET: ${f.saveDC} save</span>`);
+        parts.push(`<span class="cl-sep">→</span>`);
+        const dmgType=descLow.includes('radiant')?'radiant':descLow.includes('necrotic')?'necrotic':descLow.includes('fire')?'fire':'';
+        parts.push(`<span class="cl-dmg">💥 ${total} ${dmgType}</span>`);
+        parts.push(`<span class="cl-detail">(half on save)</span>`);
+      }else{
+        parts.push(`<span class="cl-dmg">💥 ${total}</span>`);
+      }
+      parts.push(`<span class="cl-detail">[${rolls.join('+')}${bonusStr}]</span>`);
+    }
+  }
+
+  // Warding Flare
+  if(name.includes('Warding Flare')){
+    parts.push(`<span class="cl-save">⚠️ Attacker has DISADVANTAGE</span>`);
+  }
+
+  // Battle Medic
+  if(name.includes('Battle Medic')){
+    const profBonus=c?._profBonus||2;
+    parts.push(`<span class="cl-note">Target spends 1 HD + ${profBonus} prof bonus HP</span>`);
+  }
+
+  // Features without dice and no special handling
+  if(!f.dice&&!name.includes('Warding Flare')&&!name.includes('Battle Medic')){
+    parts.push(`<span class="cl-note">✓ Activated!</span>`);
+  }
+
+  // Detect duration for buff bar
+  if(descLow.includes('1 minute')){
+    addEffect(name,'✦',false,'1 min');
+  }else if(descLow.includes('10 minute')){
+    addEffect(name,'✦',false,'10 min');
+  }else if(descLow.includes('1 hour')){
+    addEffect(name,'✦',false,'1 hr');
+  }
+
+  // Special notes
+  if(descLow.includes('frightened'))parts.push(`<span class="cl-note">→ Frightened!</span>`);
+  if(descLow.includes('advantage'))parts.push(`<span class="cl-note">→ Advantage!</span>`);
+  if(descLow.includes('disadvantage')&&!name.includes('Warding Flare'))parts.push(`<span class="cl-note">→ Disadvantage!</span>`);
+
+  log.innerHTML=parts.join(' ');
+  card.classList.add('cast-flash');
+  setTimeout(()=>card.classList.remove('cast-flash'),400);
+}
+
 function castCantrip(card){
   const spellName=card.dataset.spellName;
   const sp=window._spellData?.[spellName];
@@ -965,18 +1113,20 @@ function rollDice(count,sides){
 }
 
 function parseDamage(dmgStr,castLevel,baseLevel){
-  // Parse strings like "3d6", "2d10+3", "4d6 fire"
   if(!dmgStr)return null;
   const m=dmgStr.match(/(\d+)d(\d+)([+\-]\d+)?/);
   if(!m)return null;
   let count=parseInt(m[1]);
   const sides=parseInt(m[2]);
   const bonus=parseInt(m[3]||'0');
-  // Add dice for upcasting (1 extra die per level above base, common pattern)
-  if(castLevel>baseLevel&&baseLevel>0){
-    count+=(castLevel-baseLevel);
-  }
+  if(castLevel>baseLevel&&baseLevel>0)count+=(castLevel-baseLevel);
   return{count,sides,bonus};
+}
+
+function detectDmgType(sp){
+  const src=(sp.damage||'')+' '+(sp.description||'');
+  const m=src.match(/(fire|radiant|necrotic|cold|lightning|thunder|force|psychic|poison|acid)/i);
+  return m?m[1].toLowerCase():'';
 }
 
 function autoCast(sp,castLevel){
@@ -994,9 +1144,10 @@ function autoCast(sp,castLevel){
   const isAttack=sp.attackRoll&&sp.attackRoll.includes('+');
   const isSave=sp.saveDC&&sp.saveDC.includes('DC');
   const hasDamage=!!sp.damage;
+  const isHealing=!!sp.healDice||(sp.spellMods||[]).some(m=>m.type==='bonus'&&(m.sub||'').includes('hit-point'));
 
+  // ATTACK ROLL
   if(isAttack){
-    // Roll d20 + attack mod
     const atkMod=c?.spellAtk||0;
     const d20=rollDice(1,20)[0];
     const total=d20+atkMod;
@@ -1005,54 +1156,62 @@ function autoCast(sp,castLevel){
     let cls='cl-atk';
     if(isNat20)cls+=' nat20';
     else if(isNat1)cls+=' nat1';
-    else if(total>=15)cls+=' hit';
-    else cls+=' miss';
+    else cls+=(total>=13?' hit':' miss');
 
-    parts.push(`<span class="cl-atk ${cls}">🎯 ${total}</span>`);
+    parts.push(`<span class="${cls}">🎯 ${total}</span>`);
     parts.push(`<span class="cl-detail">[${d20}+${atkMod}]</span>`);
     if(isNat20)parts.push(`<span class="cl-atk nat20">NAT 20!</span>`);
     else if(isNat1)parts.push(`<span class="cl-atk nat1">NAT 1!</span>`);
     parts.push(`<span class="cl-sep">→</span>`);
   }
 
+  // SAVING THROW
   if(isSave){
-    // Show what the target needs to save
-    // Try to detect save stat from description
-    const descLower=(sp.description||'').toLowerCase();
-    let saveStat='';
-    const saveMatch=descLower.match(/(strength|dexterity|constitution|intelligence|wisdom|charisma) sav/);
-    if(saveMatch)saveStat=saveMatch[1].substring(0,3).toUpperCase();
-
-    parts.push(`<span class="cl-save">⚠️ TARGET: ${sp.saveDC} ${saveStat} save</span>`);
+    const stat=sp.saveStat||'';
+    parts.push(`<span class="cl-save">⚠️ TARGET: ${sp.saveDC} ${stat} save</span>`);
     parts.push(`<span class="cl-sep">→</span>`);
   }
 
+  // DAMAGE
   if(hasDamage){
     const dmg=parseDamage(sp.damage,castLevel,sp.level);
     if(dmg){
       const rolls=rollDice(dmg.count,dmg.sides);
       const total=rolls.reduce((a,b)=>a+b,0)+dmg.bonus;
       const bonusStr=dmg.bonus?`+${dmg.bonus}`:'';
-      // Detect damage type from description or damage string
-      let dmgType='';
-      const dmgTypeMatch=(sp.damage+' '+sp.description).match(/(fire|radiant|necrotic|cold|lightning|thunder|force|psychic|poison|acid|bludgeoning|piercing|slashing)/i);
-      if(dmgTypeMatch)dmgType=dmgTypeMatch[1].toLowerCase();
-
+      const dmgType=detectDmgType(sp);
       parts.push(`<span class="cl-dmg">💥 ${total} ${dmgType}</span>`);
       parts.push(`<span class="cl-detail">[${rolls.join('+')}${bonusStr}]</span>`);
       if(isSave)parts.push(`<span class="cl-detail">(half on save)</span>`);
     }
   }
 
-  if(!hasDamage&&!isAttack&&!isSave){
-    // Buff/utility — just show cast confirmation
-    const descShort=sp.description?.substring(0,80)||'';
+  // HEALING
+  if(isHealing&&!hasDamage){
+    const healStr=sp.healDice||(sp.damage);
+    const heal=parseDamage(healStr,castLevel,sp.level);
+    if(heal){
+      const rolls=rollDice(heal.count,heal.sides);
+      const total=rolls.reduce((a,b)=>a+b,0)+heal.bonus;
+      const bonusStr=heal.bonus?`+${heal.bonus}`:'';
+      parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 ${total} HP healed</span>`);
+      parts.push(`<span class="cl-detail">[${rolls.join('+')}${bonusStr}]</span>`);
+    }else{
+      parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 Healing</span>`);
+    }
+  }
+
+  // BUFF/UTILITY (no damage, no attack, no save, no healing)
+  if(!hasDamage&&!isAttack&&!isSave&&!isHealing){
     parts.push(`<span class="cl-note">✓ Cast!</span>`);
   }
 
-  // Special notes from description
-  const descLower=(sp.description||'').toLowerCase();
-  if(descLower.includes('advantage'))parts.push(`<span class="cl-note">→ Grants advantage!</span>`);
+  // EFFECT NOTES from modifiers
+  const notes=sp.effectNotes||[];
+  notes.forEach(note=>{
+    parts.push(`<span class="cl-note">→ ${note}</span>`);
+  });
+
   if(sp.concentration)parts.push(`<span class="cl-detail">⚡CONC</span>`);
 
   log.innerHTML=parts.join(' ');
