@@ -484,6 +484,7 @@ async function parseChar(c){
       limitedUse:a.limitedUse?{max:a.limitedUse.maxUses||(a.limitedUse.statModifierUsesId?stats[a.limitedUse.statModifierUsesId-1]?.mod||1:1),used:a.limitedUse.numberUsed||0,resetType:a.limitedUse.resetType}:null,
       saveDC:a.saveStatId?`DC ${spellDC}`:'',
       aoe:a.range?.aoeSize?`${a.range.aoeSize}ft ${a.range.aoeType===14?'emanation':''}`:'',
+      scaleValue:scaleValues[a.name]??scaleValues[a.name.replace(/^Channel Divinity: /,'')]??undefined,
     };
     const at=a.activation?.activationType;
     if(at===3)features.bonus.push(feat);
@@ -820,16 +821,27 @@ function buildEffectNotes(name,mods,descLow){
 }
 
 // Resolve D&D Beyond template placeholders like {{modifier:wis}}, {{scalevalue}}, {{proficiency#signed}}
-function resolveTemplates(text, charData){
+function resolveTemplates(text, charData, context){
   if(!text||!charData)return text;
   const c=charData;
+  const ctx=context||{};
   return text.replace(/\{\{([^}]+)\}\}/g,(match,expr)=>{
     expr=expr.trim().toLowerCase();
-    // {{modifier:stat}}
-    const modMatch=expr.match(/^modifier:(\w+)$/);
+    // {{modifier:stat}}, {{modifier:stat#signed}}, {{modifier:stat#unsigned}}, {{modifier:stat@min:N#unsigned}}
+    const modMatch=expr.match(/^modifier:(\w+)/);
     if(modMatch){
       const si=STAT_NAMES.findIndex(n=>n.toLowerCase()===modMatch[1]);
-      if(si>=0){const m=c._stats[si].mod;return(m>=0?'+':'')+m}
+      if(si>=0){
+        let m=c._stats[si].mod;
+        const minMatch=expr.match(/@min:(\d+)/);
+        if(minMatch)m=Math.max(m,parseInt(minMatch[1]));
+        if(expr.includes('#unsigned'))return''+m;
+        return(m>=0?'+':'')+m;
+      }
+    }
+    // {{limiteduse}} — resolve from the calling context's limited use max
+    if(expr==='limiteduse'){
+      return''+(c._currentLimitedUse||'several');
     }
     // {{savedc:stat}}
     const dcMatch=expr.match(/^savedc:(\w+)$/);
@@ -842,9 +854,11 @@ function resolveTemplates(text, charData){
       const v=c._profBonus;
       return expr.includes('signed')?(v>=0?'+':'')+v:''+v;
     }
-    // {{scalevalue}}
+    // {{scalevalue}} — context-dependent, uses feature name to look up correct scale
     if(expr==='scalevalue'){
-      return''+(c._scaleValues?.['Channel Divinity']||2);
+      if(ctx.scaleValue!==undefined)return''+ctx.scaleValue;
+      // Fallback: try common scale values
+      return''+(c._scaleValues?.['Channel Divinity']||c._scaleValues?.['Second Wind']||c._scaleValues?.['Maneuver Options']||2);
     }
     // {{classlevel}} or {{classlevel#signed}} or {{classlevel#unsigned}}
     if(expr==='classlevel'||expr==='classlevel#unsigned')return''+c._level;
@@ -1240,7 +1254,7 @@ function featureCard(f){
   return `<div class="a${f.limitedUse?' wide':''}" data-feat-name="${f.name}" onclick="useFeature(this)" style="cursor:pointer">
     <div class="top"><span class="ico">${icon}</span><span class="n">${f.name}</span>${pips.length?'<div class="pips">'+pips.join('')+'</div>':''}</div>
     ${meta.length?`<div class="bot"><span class="m">${meta.join(' · ')}</span></div>`:''}
-    <div class="tt"><h3>${f.name}</h3><div class="mt">${f.activation}${f.limitedUse?' · '+f.limitedUse.max+'/'+(f.limitedUse.resetType===1?'Short':'Long')+' Rest':''}</div><p>${resolveTemplates((f.snippet||f.description),window._char).substring(0,400)}</p></div>
+    <div class="tt"><h3>${f.name}</h3><div class="mt">${f.activation}${f.limitedUse?' · '+f.limitedUse.max+'/'+(f.limitedUse.resetType===1?'Short':'Long')+' Rest':''}</div><p>${(()=>{if(window._char){if(f.limitedUse)window._char._currentLimitedUse=f.limitedUse.max;}return resolveTemplates((f.snippet||f.description),window._char,{scaleValue:f.scaleValue}).substring(0,400)})()}</p></div>
   </div>`;
 }
 
