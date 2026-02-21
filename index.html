@@ -234,6 +234,15 @@ async function parseChar(c){
   const subclassName=cls?.subclassDefinition?.name||'';
   const level=cls?.level||1;
   const profBonus=Math.floor((level-1)/4)+2;
+  // Known-caster classes show ALL spells, not just prepared
+  const knownCasters=['Bard','Ranger','Sorcerer','Warlock'];
+  const isKnownCaster=knownCasters.includes(className);
+  // Warlock pact magic: slots recover on short rest
+  const isWarlock=className==='Warlock';
+  // Rogue sneak attack, Paladin smite
+  const isRogue=className==='Rogue';
+  const isPaladin=className==='Paladin';
+  const isBarbarian=className==='Barbarian';
 
   // Spellcasting ability
   const spellAbilityId=cls?.definition?.spellCastingAbilityId||5;
@@ -412,7 +421,7 @@ async function parseChar(c){
       components:def.componentsDescription,
       duration:formatDuration(def.duration),
       canUpcast:def.canCastAtHigherLevel,
-      prepared:s.prepared||s.alwaysPrepared||def.level===0,
+      prepared:isKnownCaster||s.prepared||s.alwaysPrepared||def.level===0,
       alwaysPrepared:s.alwaysPrepared,
       damage:extractDamage(def),
       saveDC:def.requiresSavingThrow?`DC ${spellDC}`:'',
@@ -513,7 +522,16 @@ async function parseChar(c){
   });
 
   // Extra Attack count
-  const extraAttacks=scaleValues['Extra Attack']||1; // default 1 attack
+  const extraAttacks=scaleValues['Extra Attack']||1;
+
+  // Sneak Attack dice (Rogue: ceil(level/2) d6)
+  const sneakAttackDice=isRogue?Math.ceil(level/2):0;
+
+  // Divine Smite (Paladin: 2d8 + 1d8 per slot above 1st, max 5d8)
+  const canSmite=isPaladin;
+
+  // Rage (Barbarian)
+  const rageDamage=isBarbarian?(level>=16?4:level>=9?3:2):0;
 
   // Items with limited uses (Healer's Kit, magic items with charges)
   const trackedItems=[];
@@ -577,6 +595,8 @@ async function parseChar(c){
     saveProficiencies,skillProfs,passives,
     hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
     weapons,extraAttacks,
+    sneakAttackDice,canSmite,rageDamage,
+    isKnownCaster,isWarlock,isRogue,isPaladin,isBarbarian,
     spellDC,spellAtk,spellMod,
     slotsByLevel,spells,features,trackedItems,
     // For template resolution
@@ -800,7 +820,7 @@ async function buildSheet(rawChar){
       html+=`<div class="slots"><span class="lbl">${ordinal(sl.level)}:</span>`;
       for(let i=0;i<sl.total;i++){
         const filled=i>=sl.used;
-        html+=`<div class="sp${filled?' f':''}" data-lvl="${sl.level}" onclick="tSP(this)"></div>`;
+        html+=`<div class="sp${filled?' f':''}${c.isWarlock?' sr-slot':''}" data-lvl="${sl.level}" onclick="tSP(this)"${c.isWarlock?' style="border-color:var(--sr)"':''}></div>`;
       }
       html+=`</div>`;
     });
@@ -826,7 +846,11 @@ async function buildSheet(rawChar){
 
   // Weapons
   if(c.weapons.length){
-    html+=`<div class="sh2">— Weapon Attacks —</div><div class="card-grid">`;
+    let weaponLabel='— Weapon Attacks';
+    if(c.sneakAttackDice)weaponLabel+=` · 🗡️ Sneak +${c.sneakAttackDice}d6`;
+    if(c.canSmite)weaponLabel+=` · ⚡ Smite available`;
+    weaponLabel+=' —';
+    html+=`<div class="sh2">${weaponLabel}</div><div class="card-grid">`;
     c.weapons.filter(w=>w.equipped).forEach(w=>{
       const icon=w.ranged?'🏹':w.thrown?'🪓':'⚔️';
       const rangeStr=w.ranged?`${w.range}/${w.longRange}ft`:w.thrown?`${w.range}/${w.longRange}ft`:'Melee';
@@ -1178,6 +1202,7 @@ function attackWeapon(card){
   const icon=w.ranged?'🏹':w.thrown?'🪓':'⚔️';
   const numAttacks=c?.extraAttacks||1;
   let parts=[];
+  let sneakUsed=false;
 
   parts.push(`<span class="cl-icon">${icon}</span>`);
   parts.push(`<span class="cl-name">${w.name}</span>`);
@@ -1199,16 +1224,36 @@ function attackWeapon(card){
     parts.push(`<span class="${atkCls}">🎯${atkTotal}</span>`);
 
     if(!isNat1){
-      // Roll damage
       const dmgMatch=w.dmgDice.match(/(\d+)d(\d+)/);
       if(dmgMatch){
         let dCount=parseInt(dmgMatch[1]);
         const dSides=parseInt(dmgMatch[2]);
-        if(isNat20)dCount*=2; // crit = double dice
+        if(isNat20)dCount*=2;
         const rolls=rollDice(dCount,dSides);
-        const dmg=rolls.reduce((a,b)=>a+b,0)+w.dmgBonus;
+        let dmg=rolls.reduce((a,b)=>a+b,0)+w.dmgBonus;
+
+        // Rage bonus damage (Barbarian, melee STR-based only)
+        if(c?.rageDamage&&w.melee&&window._activeEffects?.some(e=>e.name==='Rage')){
+          dmg+=c.rageDamage;
+          parts.push(`<span class="cl-detail">+${c.rageDamage}rage</span>`);
+        }
+
+        let extraParts=[];
+
+        // Sneak Attack (Rogue, once per turn, first hit)
+        if(c?.sneakAttackDice&&!sneakUsed&&!isNat1){
+          let saDice=c.sneakAttackDice;
+          if(isNat20)saDice*=2;
+          const saRolls=rollDice(saDice,6);
+          const saTotal=saRolls.reduce((a,b)=>a+b,0);
+          dmg+=saTotal;
+          sneakUsed=true;
+          extraParts.push(`<span class="cl-note">+🗡️${saTotal}sneak[${saRolls.join('+')}]</span>`);
+        }
+
         totalDmg+=dmg;
         parts.push(`<span class="cl-dmg">💥${dmg}</span>`);
+        parts.push(...extraParts);
         if(isNat20)parts.push(`<span class="cl-atk nat20">CRIT!</span>`);
       }
     }else{
@@ -1221,9 +1266,40 @@ function attackWeapon(card){
     parts.push(`<span class="cl-dmg" style="font-size:18px">⚔️ ${totalDmg} total</span>`);
   }
 
+  // Divine Smite prompt (Paladin) — after seeing the rolls
+  if(c?.canSmite){
+    parts.push(`<br><span class="cl-note" style="cursor:pointer;text-decoration:underline" onclick="smitePrompt()">⚡ Smite?</span>`);
+  }
+
   log.innerHTML=parts.join(' ');
   card.classList.add('cast-flash');
   setTimeout(()=>card.classList.remove('cast-flash'),400);
+}
+
+// Divine Smite — Paladin spends a slot after hitting
+function smitePrompt(){
+  const c=window._char;
+  if(!c)return;
+  // Find highest available slot
+  const availSlots=[];
+  for(let lvl=1;lvl<=5;lvl++){
+    if(document.querySelector(`.sp[data-lvl="${lvl}"].f`))availSlots.push(lvl);
+  }
+  if(!availSlots.length){alert('No spell slots available!');return}
+  const lvl=parseInt(prompt(`Divine Smite — use which slot level? (${availSlots.join(',')})`,'1'));
+  if(!lvl||!availSlots.includes(lvl))return;
+  // Spend the slot
+  const slot=[...document.querySelectorAll(`.sp[data-lvl="${lvl}"].f`)].pop();
+  if(slot)slot.classList.remove('f');
+  // Roll smite damage: 2d8 + 1d8 per level above 1st (max 5d8)
+  const smiteDice=Math.min(1+lvl,5);
+  const rolls=rollDice(smiteDice,8);
+  const total=rolls.reduce((a,b)=>a+b,0);
+  const log=document.getElementById('combatLog');
+  if(log){
+    log.innerHTML+=` <span class="cl-sep">+</span> <span class="cl-dmg" style="color:#ffd700">⚡ ${total} radiant</span> <span class="cl-detail">[${rolls.join('+')}] (${ordinal(lvl)} slot)</span>`;
+  }
+  sv();updateExhausted();
 }
 
 function castCantrip(card){
@@ -1487,6 +1563,8 @@ function incCounter(btn){
 
 function shortRest(){
   document.querySelectorAll('.pip.sr').forEach(p=>p.classList.add('f'));
+  // Warlock Pact Magic: all slots recover on short rest
+  document.querySelectorAll('.sp.sr-slot').forEach(s=>{s.classList.add('f');if(window._char?.isWarlock)s.style.background='var(--sr)'});
   // Count available hit dice and offer to spend them
   const hdSlots=[...document.querySelectorAll('.sp[data-hd].f')];
   if(hdSlots.length>0&&window._hp<window._maxHp){
