@@ -450,8 +450,19 @@ async function parseChar(c){
   const features={actions:[],bonus:[],reactions:[],passive:[]};
   const allActions=[...(c.actions?.race||[]),...(c.actions?.class||[]),...(c.actions?.feat||[])];
   // Filter out noise: Circle Spells, duplicate Channel Divinity sub-entries
-  const filterOut=['Circle Spell:','Initiate a Circle'];
-  allActions.filter(a=>!filterOut.some(f=>a.name.startsWith(f))).forEach(a=>{
+  const filterOut=['Circle Spell:','Initiate a Circle','Vex (','Sap (','Cleave (','Slow (','Nick (','Graze (','Push (','Topple ('];
+  // Deduplicate maneuvers that have STR/DEX variants — keep first, skip dupes
+  const seenManeuvers=new Set();
+  allActions.filter(a=>!filterOut.some(f=>a.name.startsWith(f))).filter(a=>{
+    // Dedup maneuver STR/DEX variants
+    const baseName=a.name.replace(/ \(Str\.\)$/,'').replace(/ \(Dex\.\)$/,'').replace(/ \(Str\)$/,'').replace(/ \(Dex\)$/,'');
+    if(baseName!==a.name){
+      if(seenManeuvers.has(baseName))return false;
+      seenManeuvers.add(baseName);
+      a.name=baseName; // clean up name
+    }
+    return true;
+  }).forEach(a=>{
     const feat={
       name:a.name,
       description:stripHTML(a.description),
