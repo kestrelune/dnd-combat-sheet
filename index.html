@@ -728,7 +728,7 @@ async function parseChar(c){
     race:raceName,
     className,subclassName,level,profBonus,
     stats,ac,
-    hp:{current:currentHP,max:maxHP},
+    hp:{current:currentHP,max:maxHP,temp:c.temporaryHitPoints||0},
     speed:c.race?.weightSpeeds?.normal?.walk||30,
     saveProficiencies,skillProfs,passives,
     hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
@@ -929,6 +929,7 @@ async function buildSheet(rawChar){
   window._char=c;
   window._hp=c.hp.current;
   window._maxHp=c.hp.max;
+  window._tmpHp=c.hp.temp||0;
   // Spell data map for auto-rolling
   window._spellData={};
   [...c.spells.cantrips,...c.spells.leveled].forEach(sp=>{
@@ -971,6 +972,13 @@ async function buildSheet(rawChar){
     <span class="val" id="hpT">${c.hp.current}/${c.hp.max}</span>
     <button class="b" onclick="chHP(-1)">−</button><button class="b" onclick="chHP(1)">+</button>
     <button class="b" onclick="chHP(-5)" style="font-size:9px">-5</button><button class="b" onclick="chHP(5)" style="font-size:9px">+5</button>
+    <span id="tmpHpWrap" style="display:${c.hp.temp>0?'inline-flex':'none'};align-items:center;gap:2px;margin-left:4px;padding:2px 6px;background:#2a2a1a;border:1px solid #aaaa44;border-radius:4px">
+      <span style="font-size:9px;color:#aaaa44">TMP</span>
+      <span id="tmpHpVal" style="font-size:14px;font-weight:bold;color:#eeee66">${c.hp.temp||0}</span>
+      <button class="b" style="width:16px;height:16px;font-size:9px" onclick="setTmpHP()">✎</button>
+      <button class="b" style="width:16px;height:16px;font-size:9px" onclick="clearTmpHP()">×</button>
+    </span>
+    <button class="b" id="tmpHpAdd" style="font-size:8px;width:auto;padding:0 4px;border-radius:3px;${c.hp.temp>0?'display:none':''}" onclick="setTmpHP()" title="Add Temp HP">+TMP</button>
   </div>`;
 
   // STATS
@@ -1309,8 +1317,50 @@ function upHP(){
   const p=window._hp/window._maxHp*100;
   f.style.width=p+'%';
   f.style.background=p>50?'#44cc66':p>25?'#ccaa33':'#cc3344';
+  // Update temp HP display
+  const tmpWrap=document.getElementById('tmpHpWrap');
+  const tmpVal=document.getElementById('tmpHpVal');
+  const tmpAdd=document.getElementById('tmpHpAdd');
+  if(tmpWrap&&tmpVal){
+    if(window._tmpHp>0){
+      tmpWrap.style.display='inline-flex';
+      tmpVal.textContent=window._tmpHp;
+      if(tmpAdd)tmpAdd.style.display='none';
+    }else{
+      tmpWrap.style.display='none';
+      if(tmpAdd)tmpAdd.style.display='';
+    }
+  }
 }
-function chHP(d){window._hp=Math.max(0,Math.min(window._maxHp,window._hp+d));upHP();sv()}
+function chHP(d){
+  if(d<0&&window._tmpHp>0){
+    // Damage hits temp HP first
+    const dmg=Math.abs(d);
+    if(dmg<=window._tmpHp){
+      window._tmpHp-=dmg;
+    }else{
+      const overflow=dmg-window._tmpHp;
+      window._tmpHp=0;
+      window._hp=Math.max(0,window._hp-overflow);
+    }
+  }else{
+    window._hp=Math.max(0,Math.min(window._maxHp,window._hp+d));
+  }
+  upHP();sv();
+}
+function setTmpHP(){
+  const val=prompt('Set Temporary Hit Points:',window._tmpHp||'0');
+  const n=parseInt(val);
+  if(!isNaN(n)&&n>=0){
+    // Temp HP don't stack — take higher value
+    window._tmpHp=Math.max(window._tmpHp,n);
+    upHP();sv();
+  }
+}
+function clearTmpHP(){
+  window._tmpHp=0;
+  upHP();sv();
+}
 function tSP(e){e.classList.toggle('f');sv();updateExhausted()}
 function tP(e){e.classList.toggle('f');sv();updateExhausted()}
 
@@ -2085,7 +2135,7 @@ function shortRest(){
   sv();updateExhausted();
 }
 function longRest(){
-  window._hp=window._maxHp;upHP();
+  window._hp=window._maxHp;window._tmpHp=0;upHP();
   // Restore spell slots and pips
   document.querySelectorAll('.sp:not([data-hd]),.pip').forEach(p=>p.classList.add('f'));
   // Restore half hit dice (rounded up)
@@ -2160,7 +2210,7 @@ function sv(){
   const s=[...document.querySelectorAll('.sp')].map(p=>p.classList.contains('f'));
   const p=[...document.querySelectorAll('.pip')].map(p=>p.classList.contains('f'));
   const counters=[...document.querySelectorAll('.item-counter')].map(c=>parseInt(c.textContent));
-  localStorage.setItem(key,JSON.stringify({hp:window._hp,s,p,counters}));
+  localStorage.setItem(key,JSON.stringify({hp:window._hp,tmpHp:window._tmpHp||0,s,p,counters}));
 }
 function ld(){
   const key='dndcs_'+window._char?.name;
@@ -2169,6 +2219,7 @@ function ld(){
   try{
     const d=JSON.parse(r);
     if(d.hp!==undefined)window._hp=d.hp;
+    if(d.tmpHp!==undefined)window._tmpHp=d.tmpHp;
     if(d.s)document.querySelectorAll('.sp').forEach((p,i)=>{if(d.s[i]!==undefined)p.classList.toggle('f',d.s[i])});
     if(d.p)document.querySelectorAll('.pip').forEach((p,i)=>{if(d.p[i]!==undefined)p.classList.toggle('f',d.p[i])});
     if(d.counters)document.querySelectorAll('.item-counter').forEach((c,i)=>{if(d.counters[i]!==undefined){c.textContent=d.counters[i];const card=c.closest('.a');if(card)card.classList.toggle('exhausted',d.counters[i]<=0)}});
