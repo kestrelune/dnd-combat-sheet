@@ -1307,47 +1307,6 @@ async function buildSheet(rawChar){
     html+=`</div>`;
   }
 
-  // Saves
-  html+=`<div class="sh" style="margin-top:6px">Saving Throws</div>`;
-  html+=`<div style="display:flex;flex-wrap:wrap;gap:2px">`;
-  c.stats.forEach(s=>{
-    const isProf=c.saveProficiencies.has(s.name);
-    const saveVal=s.mod+(isProf?c.profBonus:0);
-    html+=`<div class="st${isProf?' prof':''}" style="min-width:55px"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${saveVal>=0?'+':''}${saveVal}</div></div>`;
-  });
-  html+=`</div>`;
-
-  // Skills (all 18)
-  html+=`<div class="sh" style="margin-top:6px">Skills</div>`;
-  html+=`<div class="skills-grid">`;
-  c.allSkills.forEach(s=>{
-    const cls=s.expertise?'sk-expert':s.proficient?'sk-prof':'sk-none';
-    const prefix=s.expertise?'★ ':s.proficient?'● ':'';
-    const sign=s.bonus>=0?'+':'';
-    html+=`<div class="sk ${cls}"><span class="sk-name">${prefix}${s.name}</span><span class="sk-val">${sign}${s.bonus}</span></div>`;
-  });
-  html+=`</div>`;
-  html+=`</div>`;
-
-  // COL 3: DICE + NOTES
-  html+=`<div class="col">`;
-  html+=`<div class="sh">🎲 Quick Roll</div>`;
-  html+=`<div class="dr" id="dR">—</div>`;
-  html+=`<div class="dice">`;
-  html+=`<button class="db" onclick="rl(20,1,0)">d20</button>`;
-  html+=`<button class="db" onclick="rl(20,1,${c.spellAtk})">Atk+${c.spellAtk}</button>`;
-  // Common dice based on spells
-  const diceSet=new Set(['d4','d6','d8','d10','d12']);
-  html+=`<button class="db" onclick="rl(8,1,0)">d8</button>`;
-  html+=`<button class="db" onclick="rl(6,1,0)">d6</button>`;
-  html+=`<button class="db" onclick="rl(10,1,0)">d10</button>`;
-  html+=`<button class="db" onclick="rl(12,1,0)">d12</button>`;
-  html+=`<button class="db" onclick="rl(4,1,0)">d4</button>`;
-  html+=`<button class="db" onclick="rl(6,4,0)">4d6</button>`;
-  html+=`<button class="db" onclick="rl(8,2,0)">2d8</button>`;
-  html+=`<button class="db" onclick="rl(10,2,0)">2d10</button>`;
-  html+=`</div>`;
-
   // Tracked items (Healer's Kit, magic items with charges)
   if(c.trackedItems.length){
     html+=`<div class="sh" style="margin-top:6px">🎒 Items & Charges</div>`;
@@ -1362,7 +1321,6 @@ async function buildSheet(rawChar){
         pips.push(`<div class="pip${isSR?' sr':''}${filled?' f':''}" data-ability="${abilityId}" onclick="event.stopPropagation();tP(this)"></div>`);
       }
       const resetLabel=isSR?'SR':isLR?'LR':'—';
-      // If too many pips (>10), show as counter instead
       if(item.maxUses>10){
         html+=`<div class="a wide">
           <div class="top"><span class="ico">🎒</span><span class="n">${item.name}</span><span class="m" style="margin-left:auto">${item.maxUses} uses · ${resetLabel}</span></div>
@@ -1377,17 +1335,6 @@ async function buildSheet(rawChar){
       }
     });
     html+=`</div>`;
-  }
-
-  // Proficiencies
-  const profParts=[];
-  if(c.proficiencies.armor.length)profParts.push(`<b>Armor:</b> ${c.proficiencies.armor.join(', ')}`);
-  if(c.proficiencies.weapons.length)profParts.push(`<b>Weapons:</b> ${c.proficiencies.weapons.join(', ')}`);
-  if(c.proficiencies.tools.length)profParts.push(`<b>Tools:</b> ${c.proficiencies.tools.join(', ')}`);
-  if(c.proficiencies.languages.length)profParts.push(`<b>Lang:</b> ${c.proficiencies.languages.join(', ')}`);
-  if(profParts.length){
-    html+=`<div class="sh" style="margin-top:6px">📜 Proficiencies</div>`;
-    html+=`<div class="skills-line">${profParts.join(' · ')}</div>`;
   }
 
   // Inventory
@@ -1410,6 +1357,59 @@ async function buildSheet(rawChar){
       });
     }
     html+=`</div>`;
+  }
+  html+=`</div>`;
+
+  // COL 3: SAVES + SKILLS + DICE
+  html+=`<div class="col">`;
+
+  // Saving Throws
+  html+=`<div class="sh">Saving Throws</div>`;
+  html+=`<div style="display:flex;flex-wrap:wrap;gap:2px">`;
+  c.stats.forEach(s=>{
+    const isProf=c.saveProficiencies.has(s.name);
+    const saveVal=s.mod+(isProf?c.profBonus:0);
+    html+=`<div class="st${isProf?' prof':''}" style="min-width:55px"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${saveVal>=0?'+':''}${saveVal}</div></div>`;
+  });
+  html+=`</div>`;
+
+  // Skills (all 18)
+  html+=`<div class="sh" style="margin-top:6px">Skills</div>`;
+  html+=`<div class="skills-grid">`;
+  c.allSkills.forEach(s=>{
+    const cls=s.expertise?'sk-expert':s.proficient?'sk-prof':'sk-none';
+    const prefix=s.expertise?'★ ':s.proficient?'● ':'';
+    const sign=s.bonus>=0?'+':'';
+    html+=`<div class="sk ${cls}"><span class="sk-name">${prefix}${s.name}</span><span class="sk-val">${sign}${s.bonus}</span></div>`;
+  });
+  html+=`</div>`;
+
+  // Quick Roll
+  html+=`<div class="sh" style="margin-top:6px">🎲 Quick Roll</div>`;
+  html+=`<div class="dr" id="dR">—</div>`;
+  html+=`<div class="dice">`;
+  html+=`<button class="db" onclick="rl(20,1,0)">d20</button>`;
+  html+=`<button class="db" onclick="rl(20,1,${c.spellAtk})">Atk+${c.spellAtk}</button>`;
+  const diceSet=new Set(['d4','d6','d8','d10','d12']);
+  html+=`<button class="db" onclick="rl(8,1,0)">d8</button>`;
+  html+=`<button class="db" onclick="rl(6,1,0)">d6</button>`;
+  html+=`<button class="db" onclick="rl(10,1,0)">d10</button>`;
+  html+=`<button class="db" onclick="rl(12,1,0)">d12</button>`;
+  html+=`<button class="db" onclick="rl(4,1,0)">d4</button>`;
+  html+=`<button class="db" onclick="rl(6,4,0)">4d6</button>`;
+  html+=`<button class="db" onclick="rl(8,2,0)">2d8</button>`;
+  html+=`<button class="db" onclick="rl(10,2,0)">2d10</button>`;
+  html+=`</div>`;
+
+  // Proficiencies
+  const profParts=[];
+  if(c.proficiencies.armor.length)profParts.push(`<b>Armor:</b> ${c.proficiencies.armor.join(', ')}`);
+  if(c.proficiencies.weapons.length)profParts.push(`<b>Weapons:</b> ${c.proficiencies.weapons.join(', ')}`);
+  if(c.proficiencies.tools.length)profParts.push(`<b>Tools:</b> ${c.proficiencies.tools.join(', ')}`);
+  if(c.proficiencies.languages.length)profParts.push(`<b>Lang:</b> ${c.proficiencies.languages.join(', ')}`);
+  if(profParts.length){
+    html+=`<div class="sh" style="margin-top:6px">📜 Proficiencies</div>`;
+    html+=`<div class="skills-line">${profParts.join(' · ')}</div>`;
   }
 
   html+=`</div>`;
