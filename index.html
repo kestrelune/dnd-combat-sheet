@@ -136,7 +136,10 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .eff .eff-tip{display:none;position:fixed;background:#0d1117;border:1px solid #3a3a5a;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:400;color:var(--txt);white-space:normal;width:240px;max-width:90vw;box-shadow:0 4px 12px rgba(0,0,0,.6);z-index:200;line-height:1.4;pointer-events:none;text-align:left}
 
 /* Combat log strip */
-.combat-log{background:#0d1117;border:1px solid var(--brd);border-radius:6px;padding:6px 10px;margin-bottom:4px;min-height:32px;display:flex;align-items:center;gap:8px;overflow-x:auto;white-space:nowrap}
+.combat-log{background:#0d1117;border:1px solid var(--brd);border-radius:6px;padding:6px 10px;margin-bottom:4px;min-height:32px;max-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.combat-log .cl-entry{display:flex;align-items:center;gap:8px;white-space:nowrap;min-height:24px}
+.combat-log .cl-entry:not(:last-child){opacity:.5}
+.combat-log .cl-entry:last-child{opacity:1}
 .combat-log .cl-icon{font-size:16px}
 .combat-log .cl-name{font-weight:700;color:var(--gold);font-size:14px}
 .combat-log .cl-sep{color:var(--dim)}
@@ -1070,18 +1073,26 @@ async function buildSheet(rawChar){
       }
       html+=`</div>`;
     });
+    // Hit dice on same row (right side)
+    html+=`<div class="slots" style="margin-left:auto"><span class="lbl">HD:</span>`;
+    for(let i=0;i<c.hitDice.total;i++){
+      const filled=i>=c.hitDice.used;
+      html+=`<div class="sp${filled?' f':''}" data-hd="1" onclick="tSP(this)" style="border-color:var(--gold)${filled?';background:var(--gold)':''}"></div>`;
+    }
+    html+=`<span class="m" style="margin-left:4px">d${c.hitDice.die}+${c.stats[2].mod>=0?c.stats[2].mod:c.stats[2].mod}</span>`;
+    html+=`</div>`;
     html+=`</div>`;
   }
-
-  // HIT DICE
-  html+=`<div class="slots-row">`;
-  html+=`<div class="slots"><span class="lbl">HD:</span>`;
-  for(let i=0;i<c.hitDice.total;i++){
-    const filled=i>=c.hitDice.used;
-    html+=`<div class="sp${filled?' f':''}" data-hd="1" onclick="tSP(this)" style="border-color:var(--gold)${filled?';background:var(--gold)':''}"></div>`;
-  }
-  html+=`<span class="m" style="margin-left:4px">d${c.hitDice.die}+${c.stats[2].mod>=0?c.stats[2].mod:c.stats[2].mod}</span>`;
-  html+=`</div>`;
+  if(!c.slotsByLevel.length){
+    // No spell slots — still show hit dice row
+    html+=`<div class="slots-row">`;
+    html+=`<div class="slots"><span class="lbl">HD:</span>`;
+    for(let i=0;i<c.hitDice.total;i++){
+      const filled=i>=c.hitDice.used;
+      html+=`<div class="sp${filled?' f':''}" data-hd="1" onclick="tSP(this)" style="border-color:var(--gold)${filled?';background:var(--gold)':''}"></div>`;
+    }
+    html+=`<span class="m" style="margin-left:4px">d${c.hitDice.die}+${c.stats[2].mod>=0?c.stats[2].mod:c.stats[2].mod}</span>`;
+    html+=`</div>`;
 
   // CLASS RESOURCES
   // Ki/Focus Points (Monk)
@@ -1505,8 +1516,6 @@ function useFeature(card){
   const name=card.dataset.featName;
   const f=window._featureData?.[name];
   if(!f)return;
-  const log=document.getElementById('combatLog');
-  if(!log)return;
   const c=window._char;
   let parts=[];
   const descLow=(f.description||'').toLowerCase();
@@ -1663,7 +1672,7 @@ function useFeature(card){
   if(descLow.includes('advantage'))parts.push(`<span class="cl-note">→ Advantage!</span>`);
   if(descLow.includes('disadvantage')&&!name.includes('Warding Flare'))parts.push(`<span class="cl-note">→ Disadvantage!</span>`);
 
-  log.innerHTML=parts.join(' ');
+  logCombat(parts.join(' '));
   card.classList.add('cast-flash');
   setTimeout(()=>card.classList.remove('cast-flash'),400);
 }
@@ -1674,8 +1683,7 @@ function resetTurn(){
   const c=window._char;
   window._turnAttacks={used:0,max:c?.extraAttacks||1,dmgTotal:0,sneakUsed:false};
   updateAttackCounter();
-  const log=document.getElementById('combatLog');
-  if(log)log.innerHTML=`<span class="cl-empty">⚔️ New turn — ${window._turnAttacks.max} attack${window._turnAttacks.max>1?'s':''} available</span>`;
+  logCombat(`<span class="cl-detail">⚔️ New turn — ${window._turnAttacks.max} attack${window._turnAttacks.max>1?'s':''} available</span>`);
 }
 function updateAttackCounter(){
   const el=document.getElementById('atkCounter');
@@ -1692,8 +1700,6 @@ function updateAttackCounter(){
 
 function attackWeapon(card){
   const w=JSON.parse(card.dataset.weapon);
-  const log=document.getElementById('combatLog');
-  if(!log)return;
   const c=window._char;
   const icon=w.ranged?'🏹':w.thrown?'🪓':'⚔️';
   const t=window._turnAttacks;
@@ -1803,7 +1809,7 @@ function attackWeapon(card){
     parts.push(`<br><span class="cl-note" style="cursor:pointer;text-decoration:underline" onclick="smitePrompt()">⚡ Smite?</span>`);
   }
 
-  log.innerHTML=parts.join(' ');
+  logCombat(parts.join(' '));
   updateAttackCounter();
   card.classList.add('cast-flash');
   setTimeout(()=>card.classList.remove('cast-flash'),400);
@@ -1818,7 +1824,7 @@ function smitePrompt(){
   for(let lvl=1;lvl<=5;lvl++){
     if(document.querySelector(`.sp[data-lvl="${lvl}"].f`))availSlots.push(lvl);
   }
-  if(!availSlots.length){alert('No spell slots available!');return}
+  if(!availSlots.length){logCombat(`<span class="cl-save">⚠️ No spell slots for Smite!</span>`);return}
   const lvl=parseInt(prompt(`Divine Smite — use which slot level? (${availSlots.join(',')})`,'1'));
   if(!lvl||!availSlots.includes(lvl))return;
   // Spend the slot
@@ -1828,10 +1834,7 @@ function smitePrompt(){
   const smiteDice=Math.min(1+lvl,5);
   const rolls=rollDice(smiteDice,8);
   const total=rolls.reduce((a,b)=>a+b,0);
-  const log=document.getElementById('combatLog');
-  if(log){
-    log.innerHTML+=` <span class="cl-sep">+</span> <span class="cl-dmg" style="color:#ffd700">⚡ ${total} radiant</span> <span class="cl-detail">[${rolls.join('+')}] (${ordinal(lvl)} slot)</span>`;
-  }
+  logCombat(`<span class="cl-sep">+</span> <span class="cl-dmg" style="color:#ffd700">⚡ ${total} radiant</span> <span class="cl-detail">[${rolls.join('+')}] (${ordinal(lvl)} slot)</span>`,true);
   sv();updateExhausted();
 }
 
@@ -1841,13 +1844,11 @@ function useMetamagic(name,cost){
   if(!counter){return}
   let current=parseInt(counter.textContent);
   if(current<cost){
-    const log=document.getElementById('combatLog');
-    if(log)log.innerHTML=`<span class="cl-save">⚠️ Not enough Sorcery Points! Need ${cost}, have ${current}</span>`;
+    logCombat(`<span class="cl-save">⚠️ Not enough Sorcery Points! Need ${cost}, have ${current}</span>`);
     return;
   }
   counter.textContent=current-cost;
-  const log=document.getElementById('combatLog');
-  if(log)log.innerHTML=`<span class="cl-icon">✨</span> <span class="cl-name">Metamagic: ${name}</span> <span class="cl-sep">→</span> <span class="cl-note">✓ Applied! (${cost} SP spent, ${current-cost} remaining)</span>`;
+  logCombat(`<span class="cl-icon">✨</span> <span class="cl-name">Metamagic: ${name}</span> <span class="cl-sep">→</span> <span class="cl-note">✓ Applied! (${cost} SP spent, ${current-cost} remaining)</span>`);
   sv();
 }
 
@@ -1858,14 +1859,34 @@ function castCantrip(card){
     autoCast(sp,0);
   }else{
     // Fallback for cantrips without full spell data
-    const log=document.getElementById('combatLog');
-    if(log)log.innerHTML=`<span class="cl-icon">✨</span> <span class="cl-name">${spellName}</span> <span class="cl-sep">→</span> <span class="cl-note">✓ Cast!</span>`;
+    logCombat(`<span class="cl-icon">✨</span> <span class="cl-name">${spellName}</span> <span class="cl-sep">→</span> <span class="cl-note">✓ Cast!</span>`);
   }
   card.classList.add('cast-flash');
   setTimeout(()=>card.classList.remove('cast-flash'),400);
 }
 
 // ─── AUTO-CAST COMBAT LOG ───
+const COMBAT_LOG_MAX=20;
+function logCombat(html,append){
+  const log=document.getElementById('combatLog');
+  if(!log)return;
+  if(append){
+    // Append to the last entry (e.g. smite after weapon hit)
+    const last=log.querySelector('.cl-entry:last-child');
+    if(last){last.innerHTML+=` ${html}`;log.scrollTop=log.scrollHeight;return}
+  }
+  // Remove empty placeholder
+  const empty=log.querySelector('.cl-empty');
+  if(empty)empty.remove();
+  const entry=document.createElement('div');
+  entry.className='cl-entry';
+  entry.innerHTML=html;
+  log.appendChild(entry);
+  // Trim old entries
+  while(log.querySelectorAll('.cl-entry').length>COMBAT_LOG_MAX)log.querySelector('.cl-entry').remove();
+  log.scrollTop=log.scrollHeight;
+}
+
 function rollDice(count,sides){
   const rolls=[];
   for(let i=0;i<count;i++)rolls.push(Math.floor(Math.random()*sides)+1);
@@ -1890,8 +1911,6 @@ function detectDmgType(sp){
 }
 
 function autoCast(sp,castLevel){
-  const log=document.getElementById('combatLog');
-  if(!log)return;
   const c=window._char;
   const icon=spellIcon(sp);
   let parts=[];
@@ -2008,8 +2027,7 @@ function autoCast(sp,castLevel){
 
   if(sp.concentration)parts.push(`<span class="cl-detail">⚡CONC</span>`);
 
-  log.innerHTML=parts.join(' ');
-  log.scrollLeft=0;
+  logCombat(parts.join(' '));
 
   // Add active effect if spell has duration
   const dur=sp.duration||'';
