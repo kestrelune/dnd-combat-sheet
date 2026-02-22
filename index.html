@@ -607,7 +607,7 @@ async function parseChar(c){
   }
 
   // Universal unarmed strike (everyone gets this; Monks already have a better version above)
-  if(!isMonk){
+  if(className!=='Monk'){
     weapons.push({
       name:'Unarmed Strike',
       equipped:true,
