@@ -230,7 +230,8 @@ function cacheSet(key,data){
 }
 async function cachedFetch(url,cacheKey){
   const cached=cacheGet(cacheKey);
-  if(cached)return cached;
+  if(cached){console.log(`📦 Cache hit: ${cacheKey}`);return cached}
+  console.log(`🌐 Fetching: ${cacheKey}`);
   const r=await fetch(url);
   if(!r.ok)throw new Error(`HTTP ${r.status}`);
   const data=await r.json();
