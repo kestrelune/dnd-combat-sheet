@@ -314,8 +314,9 @@ async function parseChar(c){
 
   // Spell slots
   const slotsByLevel=[];
+  const canCastSpells=cls?.definition?.canCastSpells!==false;
   const spellRules=cls?.definition?.spellRules;
-  if(spellRules?.levelSpellSlots?.[level]){
+  if(canCastSpells&&spellRules?.levelSpellSlots?.[level]){
     spellRules.levelSpellSlots[level].forEach((count,i)=>{
       if(count>0)slotsByLevel.push({level:i+1,total:count,used:(c.spellSlots?.[i]?.used)||0});
     });
