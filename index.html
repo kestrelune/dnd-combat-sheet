@@ -928,9 +928,11 @@ function detectSaveStatFromDesc(descLow){
 }
 
 function buildEffectNotesFromDesc(name,descLow){
-  // Check curated database first
   const db=SPELL_EFFECTS[name];
-  if(db&&db.notes)return[...db.notes];
+  if(db&&db.notes){
+    const sm=window._char?.spellMod||0;
+    return db.notes.map(n=>n.replace(/spellmod/g,sm>=0?'+'+sm:String(sm)));
+  }
   // Generic fallback
   const notes=[];
   if(descLow.includes('advantage'))notes.push('Grants advantage');
@@ -945,7 +947,10 @@ function buildEffectNotesFromDesc(name,descLow){
 function buildEffectNotes(name,mods,descLow){
   // Check curated database first
   const db=SPELL_EFFECTS[name];
-  if(db&&db.notes)return[...db.notes];
+  if(db&&db.notes){
+    const sm=window._char?.spellMod||0;
+    return db.notes.map(n=>n.replace(/spellmod/g,sm>=0?'+'+sm:String(sm)));
+  }
   // Fallback: derive from modifiers + description
   const notes=[];
   const hasBonusAtk=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('attack'));
