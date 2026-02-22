@@ -1342,7 +1342,7 @@ async function buildSheet(rawChar){
     const equipped=c.inventory.filter(i=>i.equipped&&i.type!=='Weapon'&&i.type!=='Armor');
     const carried=c.inventory.filter(i=>!i.equipped);
     const totalWeight=c.inventory.reduce((s,i)=>s+i.weight*i.quantity,0);
-    html+=`<div class="sh" style="margin-top:6px;cursor:pointer" onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'':'none';this.querySelector('.inv-arrow').textContent=b.style.display==='none'?'▸':'▾'"><span class="inv-arrow" style="font-size:10px;color:var(--dim)">▾</span> 🎒 Inventory <span style="font-weight:400;color:var(--dim)">(${totalWeight.toFixed(1)}lb)</span></div>`;
+    html+=`<div class="sh" style="margin-top:6px;cursor:pointer" onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'':'none';this.querySelector('.inv-arrow').textContent=b.style.display==='none'?'▸':'▾'"><span class="inv-arrow" style="font-size:16px;color:var(--dim)">▾</span> 🎒 Inventory <span style="font-weight:400;color:var(--dim)">(${totalWeight.toFixed(1)}lb)</span></div>`;
     html+=`<div style="font-size:12px;color:var(--txt);line-height:1.8">`;
     if(equipped.length){
       html+=`<div style="color:var(--dim);font-size:10px;margin-bottom:2px">EQUIPPED</div>`;
