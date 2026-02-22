@@ -126,6 +126,13 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 
 .skills-line{font-size:12px;color:var(--dim);line-height:1.8}
 .skills-line b{color:var(--txt)}
+.skills-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px}
+.sk{display:flex;justify-content:space-between;padding:1px 4px;font-size:12px;border-radius:2px}
+.sk-none{color:var(--dim)}
+.sk-prof{color:var(--txt);font-weight:600}
+.sk-expert{color:var(--gold);font-weight:600}
+.sk-val{min-width:24px;text-align:right;font-weight:700}
+.sk-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Active effects bar */
 .effects-bar{display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap;min-height:0}
@@ -356,14 +363,20 @@ async function parseChar(c){
       expertiseSkills.add(m.subType);
     }
   });
+  const proficientSkills=new Set();
   allMods.forEach(m=>{
     if(m.type==='proficiency'&&SKILL_STAT[m.subType]!==undefined){
-      const si=SKILL_STAT[m.subType];
-      const isExpert=expertiseSkills.has(m.subType);
-      const name=m.subType.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-      const bonus=stats[si].mod+(isExpert?profBonus*2:profBonus);
-      skillProfs.push({name,bonus,expertise:isExpert});
+      proficientSkills.add(m.subType);
     }
+  });
+  // Build full skills list (all 18)
+  const allSkills=Object.entries(SKILL_STAT).map(([key,si])=>{
+    const isProf=proficientSkills.has(key);
+    const isExpert=expertiseSkills.has(key);
+    const name=key.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    const bonus=stats[si].mod+(isExpert?profBonus*2:isProf?profBonus:0);
+    if(isProf)skillProfs.push({name,bonus,expertise:isExpert});
+    return {name,bonus,proficient:isProf,expertise:isExpert,stat:stats[si].name};
   });
 
   // Spell slots
@@ -879,7 +892,7 @@ async function parseChar(c){
     stats,ac,
     hp:{current:currentHP,max:maxHP,temp:c.temporaryHitPoints||0},
     speed:c.race?.weightSpeeds?.normal?.walk||30,
-    saveProficiencies,skillProfs,passives,
+    saveProficiencies,skillProfs,allSkills,passives,
     hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
     weapons,extraAttacks,
     sneakAttackDice,canSmite,rageDamage,superiorityDie,
@@ -1304,13 +1317,16 @@ async function buildSheet(rawChar){
   });
   html+=`</div>`;
 
-  // Skills
-  if(c.skillProfs.length){
-    html+=`<div class="sh" style="margin-top:6px">Skills (proficient)</div>`;
-    html+=`<div class="skills-line">`;
-    html+=c.skillProfs.map(s=>s.expertise?`<b style="color:var(--gold)">★ ${s.name}</b> +${s.bonus}`:`<b>${s.name}</b> +${s.bonus}`).join(' · ');
-    html+=`</div>`;
-  }
+  // Skills (all 18)
+  html+=`<div class="sh" style="margin-top:6px">Skills</div>`;
+  html+=`<div class="skills-grid">`;
+  c.allSkills.forEach(s=>{
+    const cls=s.expertise?'sk-expert':s.proficient?'sk-prof':'sk-none';
+    const prefix=s.expertise?'★ ':s.proficient?'● ':'';
+    const sign=s.bonus>=0?'+':'';
+    html+=`<div class="sk ${cls}"><span class="sk-name">${prefix}${s.name}</span><span class="sk-val">${sign}${s.bonus}</span></div>`;
+  });
+  html+=`</div>`;
   html+=`</div>`;
 
   // COL 3: DICE + NOTES
