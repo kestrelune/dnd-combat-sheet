@@ -201,6 +201,7 @@ function condTag(name){
 }
 // Position condition tooltips on hover (like effect tips)
 document.addEventListener('mouseenter',e=>{
+  if(!e.target.closest)return;
   const tag=e.target.closest('.cond-tag');
   if(!tag)return;
   const tip=tag.querySelector('.cond-tip');
@@ -214,6 +215,7 @@ document.addEventListener('mouseenter',e=>{
   if(tr.right>window.innerWidth)tip.style.left=(window.innerWidth-tr.width-4)+'px';
 },true);
 document.addEventListener('mouseleave',e=>{
+  if(!e.target.closest)return;
   const tag=e.target.closest('.cond-tag');
   if(!tag)return;
   const tip=tag.querySelector('.cond-tip');
@@ -1409,6 +1411,9 @@ async function buildSheet(rawChar){
   initTooltips();
   updateExhausted();
   loadEffects();
+  ld(); // Restore saved HP, slots, pips, counters
+  upHP();
+  updateExhausted();
 }
 
 function spellCard(sp,c){
