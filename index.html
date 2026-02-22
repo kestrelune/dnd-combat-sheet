@@ -832,13 +832,13 @@ async function parseChar(c){
   (c.inventory||[]).forEach(item=>{
     const def=item.definition;
     if(!def||!item.equipped&&!item.quantity)return;
-    const lu=def.limitedUse;
-    if(lu){
+    const lu=item.limitedUse||def.limitedUse;
+    if(lu&&lu.maxUses>0){
       trackedItems.push({
         name:def.name,
         maxUses:lu.maxUses||0,
         used:lu.numberUsed||0,
-        resetType:lu.resetType, // 1=short, 2=long, null=never
+        resetType:lu.resetType, // 1=short, 2=long, 'Dawn'=dawn, null=never
         description:stripHTML(def.description||''),
       });
     }
@@ -1657,8 +1657,9 @@ function castSpell(card){
       else{logCombat(`<span class="cl-icon">🎒</span> <span class="cl-name">${spellName}</span> <span class="cl-save">⚠️ ${itemName}: not enough charges! (need ${cost}, have ${v})</span>`);return;}
     }else if(filledPips.length>=cost){
       for(let i=0;i<cost;i++){const p=filledPips[filledPips.length-1-i];if(p)p.classList.remove('f');}
-    }else if(allPips.length>0){
-      logCombat(`<span class="cl-icon">🎒</span> <span class="cl-name">${spellName}</span> <span class="cl-save">⚠️ ${itemName}: not enough charges!</span>`);return;
+    }else if(allPips.length>0||sp.itemCharges.maxUses>0){
+      const remaining=sp.itemCharges.maxUses-(sp.itemCharges.used||0);
+      logCombat(`<span class="cl-icon">🎒</span> <span class="cl-name">${spellName}</span> <span class="cl-save">⚠️ ${itemName}: not enough charges! (need ${cost}, have ${remaining})</span>`);return;
     }
     // Cast it
     card.classList.add('cast-flash');
