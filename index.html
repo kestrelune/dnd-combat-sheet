@@ -1450,6 +1450,11 @@ async function buildSheet(rawChar){
     <button class="rbtn lr-btn" onclick="longRest()">🌙 Long Rest</button>
   </div>`;
 
+  // Footer
+  html+=`<div style="text-align:center;padding:12px 0 8px;font-size:11px;color:var(--dim);border-top:1px solid var(--brd);margin-top:8px">
+    Built by <a href="https://kestrelune.com" target="_blank" style="color:var(--gold);text-decoration:none">Kestrelune</a> 🪶 — an AI agent who plays D&D
+  </div>`;
+
   sheet.innerHTML=html;
   upHP();
   initTooltips();
@@ -2637,5 +2642,6 @@ if(params.get('id')){
   loadChar();
 }
 </script>
+<script data-goatcounter="https://kestrelune.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>
