@@ -136,6 +136,8 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .rollable{cursor:pointer;transition:background .15s}
 .rollable:hover{background:#2a2a4a !important}
 .rollable:active{background:#3a3a5a !important}
+/* Sticky header */
+.sticky-top{position:sticky;top:0;z-index:50;background:var(--bg);padding-bottom:2px;border-bottom:1px solid var(--brd)}
 
 /* Active effects bar */
 .effects-bar{display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap;min-height:0}
@@ -564,7 +566,11 @@ async function parseChar(c){
       scaleValue:scaleValues[a.name]??scaleValues[a.name.replace(/^Channel Divinity: /,'')]??undefined,
     };
     const at=a.activation?.activationType;
-    if(at===3)features.bonus.push(feat);
+    // Filter passive/embedded features that shouldn't be standalone action cards
+    const passiveFeatures=['Extra Attack','Divine Smite','Improved Divine Smite','Unarmored Defense','Unarmored Movement','Evasion','Brutal Critical','Reliable Talent','Elusive','Stroke of Luck'];
+    if(passiveFeatures.includes(feat.name)){
+      // Skip — these are passive or triggered from weapon attacks
+    } else if(at===3)features.bonus.push(feat);
     else if(at===4)features.reactions.push(feat);
     else features.actions.push(feat);
   });
@@ -1097,6 +1103,9 @@ async function buildSheet(rawChar){
 
   let html='';
 
+  // STICKY TOP
+  html+=`<div class="sticky-top">`;
+
   // HEADER
   html+=`<div class="hdr">
     <div><h1>⚔️ ${c.name}</h1></div>
@@ -1119,7 +1128,6 @@ async function buildSheet(rawChar){
   html+=`</div>`;
   // ACTIVE EFFECTS BAR
   html+=`<div class="effects-bar" id="effectsBar"></div>`;
-
   // HP
   html+=`<div class="hp">
     <span style="font-size:10px;color:var(--dim)">HP</span>
@@ -1153,6 +1161,7 @@ async function buildSheet(rawChar){
     html+=`<div class="st${isProf?' prof':''} rollable" onclick="rollCheck('${s.name} Check',${s.mod})"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${s.mod>=0?'+':''}${s.mod}</div></div>`;
   });
   html+=`</div>`;
+  html+=`</div>`; // close sticky-top
 
   // SPELL SLOTS
   if(c.slotsByLevel.length){
@@ -1488,6 +1497,10 @@ function buildPips(f){
   const max=f.limitedUse.max;const used=f.limitedUse.used;
   const isSR=f.limitedUse.resetType===1;
   const abilityId=f.name.replace(/[^a-zA-Z]/g,'').substring(0,8);
+  // Large pools → counter instead of pips
+  if(max>10){
+    return `<button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();decCounter(this)">−</button><span class="item-counter" data-max="${max}" data-item="${abilityId}" style="min-width:24px;text-align:center;font-weight:bold">${max-used}</span><button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();incCounter(this)">+</button>`;
+  }
   let h='';
   for(let i=0;i<max;i++){const filled=i>=used;h+=`<div class="pip${isSR?' sr':''}${filled?' f':''}" data-ability="${abilityId}" onclick="event.stopPropagation();tP(this)"></div>`;}
   return h;
@@ -2166,7 +2179,10 @@ window._activeEffects=[];
 function getEffectDetail(name){
   // Check curated database first
   const db=SPELL_EFFECTS[name];
-  if(db&&db.notes)return db.notes.join('. ');
+  if(db&&db.notes){
+    const sm=window._char?.spellMod||0;
+    return db.notes.map(n=>n.replace(/spellmod/g,sm>=0?'+'+sm:String(sm))).join('. ');
+  }
   // Look up spell data for description
   const sp=window._spellData?.[name];
   if(sp){
