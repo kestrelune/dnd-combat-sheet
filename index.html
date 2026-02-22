@@ -133,6 +133,9 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .sk-expert{color:var(--gold);font-weight:600}
 .sk-val{min-width:24px;text-align:right;font-weight:700}
 .sk-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rollable{cursor:pointer;transition:background .15s}
+.rollable:hover{background:#2a2a4a !important}
+.rollable:active{background:#3a3a5a !important}
 
 /* Active effects bar */
 .effects-bar{display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap;min-height:0}
@@ -1136,7 +1139,7 @@ async function buildSheet(rawChar){
   // STATS
   html+=`<div class="stats">
     <div class="st"><div class="l">AC</div><div class="v">${c.ac}</div></div>
-    <div class="st"><div class="l">Init</div><div class="v">${c.stats[1].mod>=0?'+':''}${c.stats[1].mod}</div></div>
+    <div class="st rollable" onclick="rollCheck('Initiative',${c.stats[1].mod})"><div class="l">Init</div><div class="v">${c.stats[1].mod>=0?'+':''}${c.stats[1].mod}</div></div>
     <div class="st"><div class="l">Spd</div><div class="v">${c.speed}</div></div>
     <div class="st"><div class="l">Prof</div><div class="v">+${c.profBonus}</div></div>
 `;
@@ -1147,7 +1150,7 @@ async function buildSheet(rawChar){
   }
   c.stats.forEach(s=>{
     const isProf=c.saveProficiencies.has(s.name);
-    html+=`<div class="st${isProf?' prof':''}"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${s.mod>=0?'+':''}${s.mod}</div></div>`;
+    html+=`<div class="st${isProf?' prof':''} rollable" onclick="rollCheck('${s.name} Check',${s.mod})"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${s.mod>=0?'+':''}${s.mod}</div></div>`;
   });
   html+=`</div>`;
 
@@ -1369,7 +1372,7 @@ async function buildSheet(rawChar){
   c.stats.forEach(s=>{
     const isProf=c.saveProficiencies.has(s.name);
     const saveVal=s.mod+(isProf?c.profBonus:0);
-    html+=`<div class="st${isProf?' prof':''}" style="min-width:55px"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${saveVal>=0?'+':''}${saveVal}</div></div>`;
+    html+=`<div class="st${isProf?' prof':''} rollable" style="min-width:55px" onclick="rollCheck('${s.name} Save',${saveVal})"><div class="l">${s.name}${isProf?' ●':''}</div><div class="v">${saveVal>=0?'+':''}${saveVal}</div></div>`;
   });
   html+=`</div>`;
 
@@ -1380,7 +1383,7 @@ async function buildSheet(rawChar){
     const cls=s.expertise?'sk-expert':s.proficient?'sk-prof':'sk-none';
     const prefix=s.expertise?'★ ':s.proficient?'● ':'';
     const sign=s.bonus>=0?'+':'';
-    html+=`<div class="sk ${cls}"><span class="sk-name">${prefix}${s.name}</span><span class="sk-val">${sign}${s.bonus}</span></div>`;
+    html+=`<div class="sk ${cls} rollable" onclick="rollCheck('${s.name}',${s.bonus})"><span class="sk-name">${prefix}${s.name}</span><span class="sk-val">${sign}${s.bonus}</span></div>`;
   });
   html+=`</div>`;
 
@@ -1982,6 +1985,18 @@ function castCantrip(card){
 }
 
 // ─── AUTO-CAST COMBAT LOG ───
+function rollCheck(name,mod){
+  const d20=rollDice(1,20)[0];
+  const total=d20+mod;
+  const isNat20=d20===20,isNat1=d20===1;
+  let cls='cl-atk';
+  if(isNat20)cls+=' nat20';
+  else if(isNat1)cls+=' nat1';
+  else cls+=' hit';
+  const modStr=mod>=0?'+'+mod:String(mod);
+  logCombat(`<span class="cl-icon">🎲</span> <span class="cl-name">${name}</span> <span class="cl-sep">→</span> <span class="${cls}">${total}</span> <span class="cl-detail">[${d20}${modStr}]</span>${isNat20?' <span class="cl-atk nat20">NAT 20!</span>':''}${isNat1?' <span class="cl-atk nat1">NAT 1!</span>':''}`);
+}
+
 function logCombat(html,append){
   const log=document.getElementById('combatLog');
   if(!log)return;
