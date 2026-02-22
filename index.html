@@ -606,6 +606,24 @@ async function parseChar(c){
     });
   }
 
+  // Universal unarmed strike (everyone gets this; Monks already have a better version above)
+  if(!isMonk){
+    weapons.push({
+      name:'Unarmed Strike',
+      equipped:true,
+      melee:true,ranged:false,thrown:false,
+      atkBonus:stats[0].mod+profBonus,
+      dmgDice:'0d0',
+      dmgBonus:1+stats[0].mod,
+      dmgType:'bludgeoning',
+      range:5,longRange:5,
+      properties:[],
+      magic:false,versatileDmg:null,
+      mastery:null,masteryLabel:null,
+      isUnarmed:true,
+    });
+  }
+
   // Extra Attack count
   const extraAttacks=scaleValues['Extra Attack']||1;
 
@@ -1045,11 +1063,12 @@ async function buildSheet(rawChar){
       const displayProps=w.properties.filter(p=>!['Range','Ammunition (Firearms)'].includes(p)&&(w.mastery||!masteryNames.includes(p)));
       const propsStr=displayProps.join(', ');
       const dmgBonusStr=w.dmgBonus>=0?'+'+w.dmgBonus:w.dmgBonus;
+      const dmgDisplay=w.isUnarmed?`${w.dmgBonus}`:`${w.dmgDice}${dmgBonusStr}`;
       const masteryBadge=w.mastery?`<span class="slot" style="background:#4a2a6a;color:#cc88ff;margin-left:4px">${w.mastery.toUpperCase()}</span>`:'';
       html+=`<div class="a wide" data-weapon='${JSON.stringify(w).replace(/'/g,"&#39;")}' onclick="attackWeapon(this)" style="cursor:pointer">
         <div class="top"><span class="ico">${icon}</span><span class="n">${w.name}${w.magic?' ✨':''}</span>${masteryBadge}</div>
-        <div class="bot"><span class="m">+${w.atkBonus} · ${w.dmgDice}${dmgBonusStr} · ${rangeStr}</span></div>
-        <div class="tt"><h3>${icon} ${w.name}</h3><div class="mt">+${w.atkBonus} to hit · ${w.dmgDice}${dmgBonusStr} ${w.dmgType} · ${rangeStr}</div>${propsStr?`<p>Properties: ${propsStr}</p>`:''}${w.mastery?`<p>⚔️ Mastery: <b>${w.mastery.charAt(0).toUpperCase()+w.mastery.slice(1)}</b> — ${getMasteryDesc(w.mastery)}</p>`:''}${w.versatileDmg?`<p>Versatile (two-handed): ${w.versatileDmg}${dmgBonusStr}</p>`:''}</div>
+        <div class="bot"><span class="m">+${w.atkBonus} · ${dmgDisplay} · ${rangeStr}</span></div>
+        <div class="tt"><h3>${icon} ${w.name}</h3><div class="mt">+${w.atkBonus} to hit · ${dmgDisplay} ${w.dmgType} · ${rangeStr}</div>${propsStr?`<p>Properties: ${propsStr}</p>`:''}${w.mastery?`<p>⚔️ Mastery: <b>${w.mastery.charAt(0).toUpperCase()+w.mastery.slice(1)}</b> — ${getMasteryDesc(w.mastery)}</p>`:''}${w.versatileDmg?`<p>Versatile (two-handed): ${w.versatileDmg}${dmgBonusStr}</p>`:''}</div>
       </div>`;
     });
     html+=`</div>`;
@@ -1258,7 +1277,7 @@ function featureCard(f){
   if(f.aoe)meta.push(f.aoe);
   if(f.saveDC)meta.push(f.saveDC);
 
-  const icon=f.name==='CR: Heavenly Wings'?'🪽':f.name==='CR: Inner Radiance'?'☀️':f.name==='CR: Necrotic Shroud'?'💀':f.dice?'⚔️':'✦';
+  const icon=f.name==='CR: Heavenly Wings'?'🪽':f.name==='CR: Inner Radiance'?'☀️':f.name==='CR: Necrotic Shroud'?'💀':f.name==='Frenzy Attack'?'🪓':f.name==='Rage'?'🔥':f.name==='Reckless Attack'?'⚡':f.dice?'⚔️':'✦';
   return `<div class="a${f.limitedUse?' wide':''}" data-feat-name="${f.name}" onclick="useFeature(this)" style="cursor:pointer">
     <div class="top"><span class="ico">${icon}</span><span class="n">${f.name}</span>${pips.length?'<div class="pips">'+pips.join('')+'</div>':''}</div>
     ${meta.length?`<div class="bot"><span class="m">${meta.join(' · ')}</span></div>`:''}
@@ -1423,6 +1442,54 @@ function useFeature(card){
     updateExhausted();sv();
   }
 
+  // Frenzy Attack (Berserker Barbarian) — bonus action melee attack while raging
+  if(name==='Frenzy Attack'){
+    const meleeWeapons=c?.weapons?.filter(w=>w.melee&&w.equipped)||[];
+    if(meleeWeapons.length>0){
+      // Pick weapon (auto-pick if only one melee weapon)
+      let w=meleeWeapons[0];
+      if(meleeWeapons.length>1){
+        const pick=prompt(`Frenzy Attack — which weapon?\n${meleeWeapons.map((w,i)=>`${i+1}. ${w.name}`).join('\n')}`,'1');
+        const idx=parseInt(pick)-1;
+        if(idx>=0&&idx<meleeWeapons.length)w=meleeWeapons[idx];
+      }
+      const icon=w.thrown?'🪓':'⚔️';
+      const d20=rollDice(1,20)[0];
+      const atkTotal=d20+w.atkBonus;
+      const isNat20=d20===20;
+      const isNat1=d20===1;
+      let atkCls='cl-atk';
+      if(isNat20)atkCls+=' nat20';
+      else if(isNat1)atkCls+=' nat1';
+      else atkCls+=(atkTotal>=15?' hit':' miss');
+      parts.push(`<span class="${atkCls}">🎯${atkTotal}</span>`);
+      parts.push(`<span class="cl-detail">[${d20}+${w.atkBonus}]</span>`);
+      if(!isNat1){
+        const dmgMatch=w.dmgDice.match(/(\d+)d(\d+)/);
+        if(dmgMatch){
+          let dCount=parseInt(dmgMatch[1]);
+          const dSides=parseInt(dmgMatch[2]);
+          if(isNat20)dCount*=2;
+          const rolls=rollDice(dCount,dSides);
+          let dmg=rolls.reduce((a,b)=>a+b,0)+w.dmgBonus;
+          if(c?.rageDamage&&window._activeEffects?.some(e=>e.name==='Rage')){
+            dmg+=c.rageDamage;
+            parts.push(`<span class="cl-detail">+${c.rageDamage}rage</span>`);
+          }
+          parts.push(`<span class="cl-dmg">💥${dmg}</span>`);
+          const diceStr=`${dCount}d${dSides}: ${rolls.join('+')}`;
+          const modStr=w.dmgBonus?` | ${w.dmgBonus>0?'+':''}${w.dmgBonus} mod`:'';
+          parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
+          if(isNat20)parts.push(`<span class="cl-atk nat20">CRIT!</span>`);
+        }
+      }else{
+        parts.push(`<span class="cl-atk nat1">MISS!</span>`);
+      }
+    }else{
+      parts.push(`<span class="cl-save">⚠️ No melee weapon equipped!</span>`);
+    }
+  }
+
   // Warding Flare
   if(name.includes('Warding Flare')){
     parts.push(`<span class="cl-save">⚠️ Attacker has DISADVANTAGE</span>`);
@@ -1476,7 +1543,7 @@ function useFeature(card){
   }
 
   // Features without dice and no special handling
-  if(!f.dice&&!name.includes('Warding Flare')&&!name.includes('Battle Medic')&&!name.startsWith('CR: ')){
+  if(!f.dice&&!name.includes('Warding Flare')&&!name.includes('Battle Medic')&&!name.startsWith('CR: ')&&name!=='Frenzy Attack'){
     parts.push(`<span class="cl-note">✓ Activated!</span>`);
   }
 
@@ -1555,11 +1622,12 @@ function attackWeapon(card){
 
   if(!isNat1){
     const dmgMatch=w.dmgDice.match(/(\d+)d(\d+)/);
-    if(dmgMatch){
-      let dCount=parseInt(dmgMatch[1]);
-      const dSides=parseInt(dmgMatch[2]);
-      if(isNat20)dCount*=2;
-      const rolls=rollDice(dCount,dSides);
+    const isUnarmedFlat=w.isUnarmed&&(!dmgMatch||dmgMatch[1]==='0');
+    if(isUnarmedFlat||dmgMatch){
+      let dCount=isUnarmedFlat?0:parseInt(dmgMatch[1]);
+      const dSides=isUnarmedFlat?0:parseInt(dmgMatch[2]);
+      if(isNat20&&!isUnarmedFlat)dCount*=2;
+      const rolls=isUnarmedFlat?[]:rollDice(dCount,dSides);
       let dmg=rolls.reduce((a,b)=>a+b,0)+w.dmgBonus;
 
       // Rage bonus damage (Barbarian, melee STR-based only)
@@ -1583,9 +1651,13 @@ function attackWeapon(card){
 
       t.dmgTotal+=dmg;
       parts.push(`<span class="cl-dmg">💥${dmg}</span>`);
-      const diceStr=`${dCount}d${dSides}: ${rolls.join('+')}`;
-      const modStr=w.dmgBonus?` | ${w.dmgBonus>0?'+':''}${w.dmgBonus} mod`:'';
-      parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
+      if(isUnarmedFlat){
+        parts.push(`<span class="cl-detail">[1+${w.dmgBonus-1} STR]</span>`);
+      }else{
+        const diceStr=`${dCount}d${dSides}: ${rolls.join('+')}`;
+        const modStr=w.dmgBonus?` | ${w.dmgBonus>0?'+':''}${w.dmgBonus} mod`:'';
+        parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
+      }
       parts.push(...extraParts);
       if(isNat20)parts.push(`<span class="cl-atk nat20">CRIT!</span>`);
 
