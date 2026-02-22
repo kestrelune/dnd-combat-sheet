@@ -567,7 +567,7 @@ async function parseChar(c){
     };
     const at=a.activation?.activationType;
     // Filter passive/embedded features that shouldn't be standalone action cards
-    const passiveFeatures=['Extra Attack','Divine Smite','Improved Divine Smite','Unarmored Defense','Unarmored Movement','Evasion','Brutal Critical','Reliable Talent','Elusive','Stroke of Luck','Lay on Hands Pool'];
+    const passiveFeatures=['Extra Attack','Divine Smite','Improved Divine Smite','Unarmored Defense','Unarmored Movement','Evasion','Brutal Critical','Reliable Talent','Elusive','Stroke of Luck'];
     if(passiveFeatures.includes(feat.name)){
       // Skip — these are passive or triggered from weapon attacks
     } else if(at===3)features.bonus.push(feat);
@@ -954,7 +954,7 @@ function buildEffectNotesFromDesc(name,descLow){
   const db=SPELL_EFFECTS[name];
   if(db&&db.notes){
     const sm=window._char?.spellMod||0;
-    return db.notes.map(n=>n.replace(/spellmod/g,sm>=0?'+'+sm:String(sm)));
+    return db.notes.map(n=>n.replace(/\+\s*spellmod/g,sm>=0?'+'+sm:String(sm)).replace(/spellmod/g,sm>=0?'+'+sm:String(sm)));
   }
   // Generic fallback
   const notes=[];
@@ -972,7 +972,7 @@ function buildEffectNotes(name,mods,descLow){
   const db=SPELL_EFFECTS[name];
   if(db&&db.notes){
     const sm=window._char?.spellMod||0;
-    return db.notes.map(n=>n.replace(/spellmod/g,sm>=0?'+'+sm:String(sm)));
+    return db.notes.map(n=>n.replace(/\+\s*spellmod/g,sm>=0?'+'+sm:String(sm)).replace(/spellmod/g,sm>=0?'+'+sm:String(sm)));
   }
   // Fallback: derive from modifiers + description
   const notes=[];
@@ -1211,14 +1211,7 @@ async function buildSheet(rawChar){
     html+=`<button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();incCounter(this)">+</button>`;
     html+=`</div>`;
   }
-  // Lay on Hands (Paladin) — pool counter
-  if(c.layOnHandsPool){
-    html+=`<div class="slots" style="margin-left:8px"><span class="lbl">LoH:</span>`;
-    html+=`<button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();decCounter(this)">−</button>`;
-    html+=`<span class="item-counter" data-max="${c.layOnHandsPool}" data-item="loh" style="min-width:24px;text-align:center;font-weight:bold">${c.layOnHandsPool}</span>`;
-    html+=`<button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();incCounter(this)">+</button>`;
-    html+=`<span class="m">HP pool</span></div>`;
-  }
+  // Lay on Hands moved to feature cards (uses buildPips counter for large pools)
   html+=`</div>`;
 
   // GRID
@@ -2138,6 +2131,9 @@ function autoCast(sp,castLevel){
       const diceStr=`${heal.count}d${heal.sides}: ${rolls.join('+')}`;
       const modStr=heal.bonus?` | +${heal.bonus} mod`:'';
       parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
+    }else if(notes.length){
+      // No dice but has effect notes (e.g. Heroism: temp HP each turn)
+      // Don't show generic "Healing", notes will be appended below
     }else{
       parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 Healing</span>`);
     }
@@ -2181,7 +2177,7 @@ function getEffectDetail(name){
   const db=SPELL_EFFECTS[name];
   if(db&&db.notes){
     const sm=window._char?.spellMod||0;
-    return db.notes.map(n=>n.replace(/spellmod/g,sm>=0?'+'+sm:String(sm))).join('. ');
+    return db.notes.map(n=>n.replace(/\+\s*spellmod/g,sm>=0?'+'+sm:String(sm)).replace(/spellmod/g,sm>=0?'+'+sm:String(sm))).join('. ');
   }
   // Look up spell data for description
   const sp=window._spellData?.[name];
