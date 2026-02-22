@@ -167,6 +167,10 @@ const STAT_NAMES=['STR','DEX','CON','INT','WIS','CHA'];
 const STAT_IDS={1:'STR',2:'DEX',3:'CON',4:'INT',5:'WIS',6:'CHA'};
 const ACTIVATION_TYPES={1:'Action',3:'Bonus Action',4:'Reaction',5:'Free',6:'Minute',7:'Hour'};
 
+// ─── SPELL EFFECTS DATABASE (319 SRD spells) ───
+let SPELL_EFFECTS={};
+fetch('spell-effects.json').then(r=>r.json()).then(d=>{SPELL_EFFECTS=d;console.log(`Loaded ${Object.keys(d).length} spell effects`)}).catch(()=>console.warn('spell-effects.json not found, using fallback'));
+
 // ─── CACHE ───
 const CACHE_TTL=24*60*60*1000; // 24 hours
 function cacheGet(key){
@@ -780,18 +784,14 @@ function detectSaveStatFromDesc(descLow){
 }
 
 function buildEffectNotesFromDesc(name,descLow){
+  // Check curated database first
+  const db=SPELL_EFFECTS[name];
+  if(db&&db.notes)return[...db.notes];
+  // Generic fallback
   const notes=[];
-  const n=name.toLowerCase();
-  // Spell-specific overrides
-  if(n==='guiding bolt'){notes.push('Next attack vs target has ADV');return notes}
-  if(n==='prayer of healing'){notes.push('Heals up to 6 creatures');return notes}
-  if(n==='guidance'){notes.push('+d4 to one ability check');return notes}
-  if(n==='resistance'){notes.push('+d4 to one saving throw');return notes}
-  if(n==='light'){notes.push('20ft bright light, 20ft dim');return notes}
-  // Generic detection
-  if(descLow.includes('advantage'))notes.push('Next attack vs target has ADV');
-  if(descLow.includes('can\'t benefit from the invisible')||descLow.includes('can\'t be invisible'))notes.push('Reveals invisible');
-  if(descLow.includes('see invisible'))notes.push('See invisible + Ethereal');
+  if(descLow.includes('advantage'))notes.push('Grants advantage');
+  if(descLow.includes('disadvantage'))notes.push('Imposes disadvantage');
+  if(descLow.includes('can\'t be invisible'))notes.push('Reveals invisible');
   if(descLow.includes('frightened'))notes.push('Frightened');
   if(descLow.includes('blinded'))notes.push('Blinded');
   return notes;
@@ -799,9 +799,11 @@ function buildEffectNotesFromDesc(name,descLow){
 
 // Build smart effect notes from spell modifiers and description
 function buildEffectNotes(name,mods,descLow){
+  // Check curated database first
+  const db=SPELL_EFFECTS[name];
+  if(db&&db.notes)return[...db.notes];
+  // Fallback: derive from modifiers + description
   const notes=[];
-  const n=name.toLowerCase();
-  // Check modifiers
   const hasBonusAtk=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('attack'));
   const hasBonusSave=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('saving'));
   const hasBonusAC=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('armor-class'));
@@ -809,33 +811,17 @@ function buildEffectNotes(name,mods,descLow){
   const hasBonusHP=mods.some(m=>m.type==='bonus'&&(m.sub||'').includes('hit-point'));
   const hasAdvAtk=mods.some(m=>m.type==='advantage'&&(m.sub||'').includes('attack'));
   const hasDmg=mods.some(m=>m.type==='damage');
-
-  // Spell-specific effect notes
-  if(n==='guiding bolt')notes.push('Next attack vs target has ADV');
-  else if(n==='guidance')notes.push('+d4 to one ability check');
-  else if(n==='resistance')notes.push('+d4 to one saving throw');
-  else if(n==='light')notes.push('20ft bright light, 20ft dim');
-  else if(n==='prayer of healing')notes.push('Heals up to 6 creatures');
-  else{
-    if(hasBonusAtk&&hasBonusSave)notes.push('+d4 attacks & saves');
-    else if(hasBonusAtk)notes.push('+d4 attacks');
-    else if(hasBonusSave)notes.push('+d4 saves');
-    if(hasBonusAC)notes.push('+2 AC');
-    if(hasBonusCheck&&!n.includes('guidance'))notes.push('+d4 ability check');
-    if(hasBonusHP&&!hasDmg)notes.push('Healing');
-    if(hasAdvAtk)notes.push('Next atk has ADV');
-
-    // Description-based detection
-    if(descLow.includes('advantage')&&!hasAdvAtk&&!hasBonusAtk)notes.push('Next attack vs target has ADV');
-    if(descLow.includes('disadvantage')&&!n.includes('bane'))notes.push('Imposes disadvantage');
-    if(descLow.includes('frightened'))notes.push('Frightened');
-    if(descLow.includes('can\'t be invisible')||descLow.includes('cannot be invisible'))notes.push('Reveals invisible');
-    if(descLow.includes('see invisible'))notes.push('See invisible + Ethereal');
-    if(descLow.includes('blinded'))notes.push('Blinded');
-    // Bane specifically subtracts
-    if(n.includes('bane'))notes.push('-d4 attacks & saves');
-  }
-
+  if(hasBonusAtk&&hasBonusSave)notes.push('+d4 attacks & saves');
+  else if(hasBonusAtk)notes.push('+d4 attacks');
+  else if(hasBonusSave)notes.push('+d4 saves');
+  if(hasBonusAC)notes.push('+2 AC');
+  if(hasBonusCheck)notes.push('+d4 ability check');
+  if(hasBonusHP&&!hasDmg)notes.push('Healing');
+  if(hasAdvAtk)notes.push('Next atk has ADV');
+  if(descLow.includes('advantage')&&!hasAdvAtk&&!hasBonusAtk)notes.push('Grants advantage');
+  if(descLow.includes('disadvantage'))notes.push('Imposes disadvantage');
+  if(descLow.includes('frightened'))notes.push('Frightened');
+  if(descLow.includes('blinded'))notes.push('Blinded');
   return notes;
 }
 
@@ -1923,6 +1909,9 @@ function autoCast(sp,castLevel){
 window._activeEffects=[];
 
 function getEffectDetail(name){
+  // Check curated database first
+  const db=SPELL_EFFECTS[name];
+  if(db&&db.notes)return db.notes.join('. ');
   // Look up spell data for description
   const sp=window._spellData?.[name];
   if(sp){
@@ -1930,7 +1919,6 @@ function getEffectDetail(name){
     const dur=sp.duration||'';
     const conc=sp.concentration?'Concentration. ':'';
     const desc=sp.description||'';
-    // Build a useful summary
     let summary=conc;
     if(notes)summary+=notes+'. ';
     if(sp.saveDC)summary+=sp.saveDC+(sp.saveStat?' '+sp.saveStat:'')+' save. ';
