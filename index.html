@@ -144,11 +144,16 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .eff{position:relative}
 .eff .eff-tip{display:none;position:fixed;background:#0d1117;border:1px solid #3a3a5a;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:400;color:var(--txt);white-space:normal;width:240px;max-width:90vw;box-shadow:0 4px 12px rgba(0,0,0,.6);z-index:200;line-height:1.4;pointer-events:none;text-align:left}
 
-/* Combat log strip */
-.combat-log{background:#0d1117;border:1px solid var(--brd);border-radius:6px;padding:6px 10px;margin-bottom:4px;min-height:32px;max-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
-.combat-log .cl-entry{display:flex;align-items:center;gap:8px;white-space:nowrap;min-height:24px}
-.combat-log .cl-entry:not(:last-child){opacity:.5}
-.combat-log .cl-entry:last-child{opacity:1}
+/* Combat log */
+.combat-log{background:#0d1117;border:1px solid var(--brd);border-radius:6px;padding:6px 10px;margin-bottom:4px;min-height:32px;display:flex;flex-direction:column;gap:2px;cursor:pointer;position:relative;z-index:100}
+.combat-log.collapsed{max-height:34px;overflow:hidden}
+.combat-log.collapsed .cl-entry:not(:last-child){display:none}
+.combat-log.expanded{max-height:300px;overflow-y:auto;position:absolute;left:0;right:0;top:0;box-shadow:0 8px 24px rgba(0,0,0,.7);z-index:200}
+.combat-log .cl-entry{display:flex;align-items:center;gap:8px;white-space:nowrap;min-height:24px;font-size:13px}
+.combat-log.expanded .cl-entry:not(:last-child){opacity:.5}
+.combat-log.expanded .cl-entry:last-child{opacity:1}
+.combat-log.collapsed::after{content:'▾';position:absolute;right:8px;top:8px;font-size:10px;color:var(--dim);pointer-events:none}
+.combat-log.expanded::after{content:'▴';position:absolute;right:8px;top:8px;font-size:10px;color:var(--dim);pointer-events:none}
 .combat-log .cl-icon{font-size:16px}
 .combat-log .cl-name{font-weight:700;color:var(--gold);font-size:14px}
 .combat-log .cl-sep{color:var(--dim)}
@@ -1091,18 +1096,18 @@ async function buildSheet(rawChar){
     <button class="reload" onclick="loadChar(true)" title="Re-fetch from D&D Beyond">↻ Sync</button>
   </div>`;
 
-  // COMBAT LOG
+  // ACTIVE EFFECTS BAR + ATTACK COUNTER (inline)
   const showAtkCounter=(c.extraAttacks||1)>1;
-  html+=`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-    <div class="combat-log" id="combatLog" style="flex:1;margin-bottom:0"><span class="cl-empty">Click a weapon or spell...</span></div>
-    ${showAtkCounter?`<div style="display:flex;flex-direction:column;gap:2px;align-items:center">
+  html+=`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">`;
+  html+=`<div class="effects-bar" id="effectsBar" style="margin-bottom:0"></div>`;
+  if(showAtkCounter){
+    html+=`<div style="display:flex;gap:4px;align-items:center;margin-left:auto">
       <span id="atkCounter" style="font-size:11px;color:var(--gold);white-space:nowrap">Attacks: ${c.extraAttacks}/${c.extraAttacks}</span>
       <span id="turnDmg" style="font-size:10px;color:var(--dim);display:none;white-space:nowrap"></span>
       <button onclick="resetTurn()" style="padding:2px 8px;border-radius:4px;border:1px solid var(--brd);background:var(--card);color:var(--dim);font-size:10px;cursor:pointer;white-space:nowrap">New Turn</button>
-    </div>`:''}
-  </div>`;
-  // ACTIVE EFFECTS BAR
-  html+=`<div class="effects-bar" id="effectsBar"></div>`;
+    </div>`;
+  }
+  html+=`</div>`;
 
   // HP
   html+=`<div class="hp">
@@ -1313,8 +1318,9 @@ async function buildSheet(rawChar){
   }
   html+=`</div>`;
 
-  // COL 3: DICE + NOTES
-  html+=`<div class="col">`;
+  // COL 3: LOG + DICE + NOTES
+  html+=`<div class="col" style="position:relative">`;
+  html+=`<div class="combat-log collapsed" id="combatLog" onclick="toggleLog(event)"><span class="cl-empty">Click a weapon or spell...</span></div>`;
   html+=`<div class="sh">🎲 Quick Roll</div>`;
   html+=`<div class="dr" id="dR">—</div>`;
   html+=`<div class="dice">`;
@@ -1967,6 +1973,24 @@ function castCantrip(card){
 
 // ─── AUTO-CAST COMBAT LOG ───
 const COMBAT_LOG_MAX=20;
+function toggleLog(e){
+  const log=document.getElementById('combatLog');
+  if(!log)return;
+  if(log.classList.contains('collapsed')){
+    log.classList.remove('collapsed');
+    log.classList.add('expanded');
+    log.scrollTop=log.scrollHeight;
+    e.stopPropagation();
+  }
+}
+document.addEventListener('click',e=>{
+  const log=document.getElementById('combatLog');
+  if(!log||!log.classList.contains('expanded'))return;
+  if(!log.contains(e.target)){
+    log.classList.remove('expanded');
+    log.classList.add('collapsed');
+  }
+});
 function logCombat(html,append){
   const log=document.getElementById('combatLog');
   if(!log)return;
@@ -1984,7 +2008,10 @@ function logCombat(html,append){
   log.appendChild(entry);
   // Trim old entries
   while(log.querySelectorAll('.cl-entry').length>COMBAT_LOG_MAX)log.querySelector('.cl-entry').remove();
-  log.scrollTop=log.scrollHeight;
+  if(log.classList.contains('expanded'))log.scrollTop=log.scrollHeight;
+  // Flash to draw attention
+  log.style.borderColor='var(--gold)';
+  setTimeout(()=>{log.style.borderColor='';},600);
 }
 
 function rollDice(count,sides){
