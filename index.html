@@ -1442,52 +1442,10 @@ function useFeature(card){
     updateExhausted();sv();
   }
 
-  // Frenzy Attack (Berserker Barbarian) — bonus action melee attack while raging
+  // Frenzy Attack (Berserker Barbarian) — enables bonus action melee attack while raging
   if(name==='Frenzy Attack'){
-    const meleeWeapons=c?.weapons?.filter(w=>w.melee&&w.equipped)||[];
-    if(meleeWeapons.length>0){
-      // Pick weapon (auto-pick if only one melee weapon)
-      let w=meleeWeapons[0];
-      if(meleeWeapons.length>1){
-        const pick=prompt(`Frenzy Attack — which weapon?\n${meleeWeapons.map((w,i)=>`${i+1}. ${w.name}`).join('\n')}`,'1');
-        const idx=parseInt(pick)-1;
-        if(idx>=0&&idx<meleeWeapons.length)w=meleeWeapons[idx];
-      }
-      const icon=w.thrown?'🪓':'⚔️';
-      const d20=rollDice(1,20)[0];
-      const atkTotal=d20+w.atkBonus;
-      const isNat20=d20===20;
-      const isNat1=d20===1;
-      let atkCls='cl-atk';
-      if(isNat20)atkCls+=' nat20';
-      else if(isNat1)atkCls+=' nat1';
-      else atkCls+=(atkTotal>=15?' hit':' miss');
-      parts.push(`<span class="${atkCls}">🎯${atkTotal}</span>`);
-      parts.push(`<span class="cl-detail">[${d20}+${w.atkBonus}]</span>`);
-      if(!isNat1){
-        const dmgMatch=w.dmgDice.match(/(\d+)d(\d+)/);
-        if(dmgMatch){
-          let dCount=parseInt(dmgMatch[1]);
-          const dSides=parseInt(dmgMatch[2]);
-          if(isNat20)dCount*=2;
-          const rolls=rollDice(dCount,dSides);
-          let dmg=rolls.reduce((a,b)=>a+b,0)+w.dmgBonus;
-          if(c?.rageDamage&&window._activeEffects?.some(e=>e.name==='Rage')){
-            dmg+=c.rageDamage;
-            parts.push(`<span class="cl-detail">+${c.rageDamage}rage</span>`);
-          }
-          parts.push(`<span class="cl-dmg">💥${dmg}</span>`);
-          const diceStr=`${dCount}d${dSides}: ${rolls.join('+')}`;
-          const modStr=w.dmgBonus?` | ${w.dmgBonus>0?'+':''}${w.dmgBonus} mod`:'';
-          parts.push(`<span class="cl-detail">[${diceStr}${modStr}]</span>`);
-          if(isNat20)parts.push(`<span class="cl-atk nat20">CRIT!</span>`);
-        }
-      }else{
-        parts.push(`<span class="cl-atk nat1">MISS!</span>`);
-      }
-    }else{
-      parts.push(`<span class="cl-save">⚠️ No melee weapon equipped!</span>`);
-    }
+    parts.push(`<span class="cl-note">🪓 Frenzy active — bonus action melee attack each turn</span>`);
+    addEffect('Frenzy','🪓',false,'While raging','Bonus action melee weapon attack each turn. Exhaustion when rage ends.');
   }
 
   // Warding Flare
