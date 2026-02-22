@@ -526,7 +526,7 @@ async function parseChar(c){
       components:def.componentsDescription,
       duration:formatDuration(def.duration),
       canUpcast:def.canCastAtHigherLevel,
-      prepared:isKnownCaster||s.prepared||s.alwaysPrepared||def.level===0,
+      prepared:isKnownCaster||s.prepared||s.alwaysPrepared||def.level===0||!!s._itemCharges,
       alwaysPrepared:s.alwaysPrepared,
       damage:extractDamage(def),
       saveDC:def.requiresSavingThrow?`DC ${spellDC}`:'',
