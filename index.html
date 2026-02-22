@@ -476,7 +476,7 @@ async function parseChar(c){
 
   // Spells
   const spells={cantrips:[],leveled:[]};
-  const allSpells=[...(c.spells?.race||[]),...(c.spells?.class||[]),...(c.classSpells?.[0]?.spells||[]),...(c.spells?.feat||[])];
+  const allSpells=[...(c.spells?.race||[]),...(c.spells?.class||[]),...(c.classSpells?.[0]?.spells||[]),...(c.spells?.feat||[]),...(c.spells?.item||[])];
   // Dedup by name
   const seen=new Set();
   allSpells.forEach(s=>{
