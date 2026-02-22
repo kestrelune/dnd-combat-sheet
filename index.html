@@ -567,7 +567,7 @@ async function parseChar(c){
     };
     const at=a.activation?.activationType;
     // Filter passive/embedded features that shouldn't be standalone action cards
-    const passiveFeatures=['Extra Attack','Divine Smite','Improved Divine Smite','Unarmored Defense','Unarmored Movement','Evasion','Brutal Critical','Reliable Talent','Elusive','Stroke of Luck'];
+    const passiveFeatures=['Extra Attack','Divine Smite','Improved Divine Smite','Unarmored Defense','Unarmored Movement','Evasion','Brutal Critical','Reliable Talent','Elusive','Stroke of Luck','Lay on Hands Pool'];
     if(passiveFeatures.includes(feat.name)){
       // Skip — these are passive or triggered from weapon attacks
     } else if(at===3)features.bonus.push(feat);
