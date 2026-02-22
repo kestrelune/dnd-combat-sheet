@@ -1081,10 +1081,8 @@ async function buildSheet(rawChar){
     }
     html+=`<span class="m" style="margin-left:4px">d${c.hitDice.die}+${c.stats[2].mod>=0?c.stats[2].mod:c.stats[2].mod}</span>`;
     html+=`</div>`;
-    html+=`</div>`;
-  }
-  if(!c.slotsByLevel.length){
-    // No spell slots — still show hit dice row
+  }else{
+    // No spell slots — just hit dice row
     html+=`<div class="slots-row">`;
     html+=`<div class="slots"><span class="lbl">HD:</span>`;
     for(let i=0;i<c.hitDice.total;i++){
@@ -1093,8 +1091,9 @@ async function buildSheet(rawChar){
     }
     html+=`<span class="m" style="margin-left:4px">d${c.hitDice.die}+${c.stats[2].mod>=0?c.stats[2].mod:c.stats[2].mod}</span>`;
     html+=`</div>`;
+  }
 
-  // CLASS RESOURCES
+  // CLASS RESOURCES (inside the still-open slots-row)
   // Ki/Focus Points (Monk)
   if(c.kiPoints){
     html+=`<div class="slots" style="margin-left:8px"><span class="lbl">Ki:</span>`;
