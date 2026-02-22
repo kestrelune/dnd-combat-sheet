@@ -108,6 +108,15 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .db{padding:3px 6px;background:var(--card);border:1px solid var(--brd);border-radius:3px;color:var(--txt);font-size:12px;cursor:pointer}
 .db:active{background:var(--acc)}
 
+/* Feature groups (parent + children) */
+.feat-group{background:var(--card);border-radius:3px;border:1px solid var(--brd);overflow:hidden}
+.feat-group>.fg-parent{padding:2px 4px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:3px;min-height:28px}
+.feat-group>.fg-parent .n{font-size:13px;font-weight:600}
+.feat-group>.fg-parent .pips{margin-left:auto}
+.feat-group>.fg-children{display:flex;flex-wrap:wrap;gap:1px;padding:1px}
+.feat-group>.fg-children .a{border:none;border-radius:2px;min-height:30px;background:var(--ch)}
+.feat-group.exhausted>.fg-children .a{opacity:.35;pointer-events:none}
+
 .rest-btns{display:flex;gap:4px;margin-top:4px}
 .rbtn{flex:1;padding:5px;border-radius:5px;font-size:13px;cursor:pointer;text-align:center;border:none}
 .rbtn.sr-btn{background:#1a2a3a;border:1px solid var(--sr);color:var(--sr)}
@@ -554,9 +563,61 @@ async function parseChar(c){
       {name:'CR: Inner Radiance',description:`10ft bright light, 10ft dim. End of each turn, creatures within 10ft take ${profB} radiant. +${profB} radiant once/turn on attack or spell.`,snippet:`☀️ 10ft light, ${profB} radiant AoE/turn`,activation:'Bonus Action',dice:'',range:'',limitedUse:null,saveDC:`DC ${spellDC}`,aoe:'10ft emanation',parentAbility:'Celestial Revelation'},
       {name:'CR: Necrotic Shroud',description:`Each creature within 15ft: CHA save DC ${spellDC} or Frightened until end of your next turn. +${profB} necrotic damage once/turn on attack or spell.`,snippet:`💀 15ft CHA save or Frightened, +${profB} necrotic/turn`,activation:'Bonus Action',dice:'',range:'',limitedUse:null,saveDC:`DC ${spellDC}`,aoe:'15ft emanation',parentAbility:'Celestial Revelation'},
     ];
-    // Insert sub-options right after the parent
+    // Mark sub-options as children of CR
+    subOptions.forEach(o=>o.parentAbility='Celestial Revelation');
     features.bonus.splice(crIdx+1,0,...subOptions);
   }
+
+  // Group parent-child features (Channel Divinity, Superiority Dice, Celestial Revelation)
+  function groupFeatures(list){
+    // Detect parent-child: "Channel Divinity: X" → parent "Channel Divinity", "Maneuver: X" → parent "Superiority Dice", parentAbility field
+    const parentMap={}; // parentName → {parent, children:[]}
+    const grouped=[];
+    const childSet=new Set();
+
+    // First pass: find parents and their children
+    list.forEach(f=>{
+      // Named parent detection
+      if(f.name==='Channel Divinity'||f.name==='Superiority Dice'||f.name==='Celestial Revelation'){
+        if(!parentMap[f.name])parentMap[f.name]={parent:f,children:[]};
+        else parentMap[f.name].parent=f;
+      }
+    });
+    list.forEach(f=>{
+      // Channel Divinity children: "Channel Divinity: X"
+      if(f.name.startsWith('Channel Divinity: ')&&f.name!=='Channel Divinity'){
+        if(!parentMap['Channel Divinity'])parentMap['Channel Divinity']={parent:null,children:[]};
+        parentMap['Channel Divinity'].children.push(f);
+        childSet.add(f);
+      }
+      // Maneuver children: "Maneuver: X" or name starts with "Maneuver:"
+      if(f.name.startsWith('Maneuver:')||f.name.startsWith('Maneuver ')){
+        if(!parentMap['Superiority Dice'])parentMap['Superiority Dice']={parent:null,children:[]};
+        parentMap['Superiority Dice'].children.push(f);
+        childSet.add(f);
+      }
+      // parentAbility field (e.g. CR sub-options)
+      if(f.parentAbility&&parentMap[f.parentAbility]){
+        parentMap[f.parentAbility].children.push(f);
+        childSet.add(f);
+      }
+    });
+
+    // Second pass: build grouped output
+    list.forEach(f=>{
+      if(childSet.has(f))return; // skip children, they're inside groups
+      if(parentMap[f.name]&&parentMap[f.name].children.length){
+        f._children=parentMap[f.name].children;
+        grouped.push(f);
+      }else{
+        grouped.push(f);
+      }
+    });
+    return grouped;
+  }
+  features.actions=groupFeatures(features.actions);
+  features.bonus=groupFeatures(features.bonus);
+  features.reactions=groupFeatures(features.reactions);
 
   // Weapon Mastery — parse modifier map: weaponName → masteryProperty
   const weaponMasteryMap={};
@@ -680,6 +741,12 @@ async function parseChar(c){
 
   // Rage (Barbarian)
   const rageDamage=isBarbarian?(level>=16?4:level>=9?3:2):0;
+
+  // Superiority Die (Battle Master)
+  let superiorityDie=8;
+  (cls?.classFeatures||[]).forEach(f=>{
+    if(f.definition?.name==='Combat Superiority'&&f.levelScale?.dice?.diceValue)superiorityDie=f.levelScale.dice.diceValue;
+  });
 
   // Monk
   const isMonk=className==='Monk';
@@ -814,7 +881,7 @@ async function parseChar(c){
     saveProficiencies,skillProfs,passives,
     hitDice:{die:cls?.definition?.hitDice||8,total:level,used:c.hitDiceUsed||0},
     weapons,extraAttacks,
-    sneakAttackDice,canSmite,rageDamage,
+    sneakAttackDice,canSmite,rageDamage,superiorityDie,
     isKnownCaster,isWarlock,isRogue,isPaladin,isBarbarian,isMonk,isWizard,isSorcerer,
     kiPoints,martialArtsDie,layOnHandsPool,arcaneRecoverySlots,
     sorceryPoints,metamagicOptions,
@@ -1003,6 +1070,7 @@ async function buildSheet(rawChar){
   window._featureData={};
   [...c.features.actions,...c.features.bonus,...c.features.reactions].forEach(f=>{
     window._featureData[f.name]=f;
+    if(f._children)f._children.forEach(ch=>{window._featureData[ch.name]=ch;ch._parentName=f.name;});
   });
 
   let html='';
@@ -1372,29 +1440,56 @@ function spellCard(sp,c){
 }
 
 function featureCard(f){
-  const pips=[];
-  if(f.limitedUse){
-    const max=f.limitedUse.max;
-    const used=f.limitedUse.used;
-    const isSR=f.limitedUse.resetType===1;
-    const abilityId=f.name.replace(/[^a-zA-Z]/g,'').substring(0,8);
-    for(let i=0;i<max;i++){
-      const filled=i>=used;
-      pips.push(`<div class="pip${isSR?' sr':''}${filled?' f':''}" data-ability="${abilityId}" onclick="event.stopPropagation();tP(this)"></div>`);
-    }
+  // If this feature has children, render as a group
+  if(f._children&&f._children.length){
+    return featureGroupCard(f);
   }
-  const meta=[];
-  if(f.dice)meta.push(f.dice);
-  if(f.range)meta.push(f.range);
-  if(f.aoe)meta.push(f.aoe);
-  if(f.saveDC)meta.push(f.saveDC);
-
-  const icon=f.name==='CR: Heavenly Wings'?'🪽':f.name==='CR: Inner Radiance'?'☀️':f.name==='CR: Necrotic Shroud'?'💀':f.name==='Frenzy Attack'?'🪓':f.name==='Rage'?'🔥':f.name==='Reckless Attack'?'⚡':f.dice?'⚔️':'✦';
+  const pips=buildPips(f);
+  const meta=buildMeta(f);
+  const icon=featureIcon(f);
   return `<div class="a${f.limitedUse?' wide':''}" data-feat-name="${f.name}" onclick="useFeature(this)" style="cursor:pointer">
-    <div class="top"><span class="ico">${icon}</span><span class="n">${f.name}</span>${pips.length?'<div class="pips">'+pips.join('')+'</div>':''}</div>
-    ${meta.length?`<div class="bot"><span class="m">${meta.join(' · ')}</span></div>`:''}
+    <div class="top"><span class="ico">${icon}</span><span class="n">${f.name}</span>${pips?'<div class="pips">'+pips+'</div>':''}</div>
+    ${meta?`<div class="bot"><span class="m">${meta}</span></div>`:''}
     <div class="tt"><h3>${f.name}</h3><div class="mt">${f.activation}${f.limitedUse?' · '+f.limitedUse.max+'/'+(f.limitedUse.resetType===1?'Short':'Long')+' Rest':''}</div><p>${(()=>{if(window._char){if(f.limitedUse)window._char._currentLimitedUse=f.limitedUse.max;}return resolveTemplates((f.snippet||f.description),window._char,{scaleValue:f.scaleValue}).substring(0,400)})()}</p></div>
   </div>`;
+}
+function buildPips(f){
+  if(!f.limitedUse)return '';
+  const max=f.limitedUse.max;const used=f.limitedUse.used;
+  const isSR=f.limitedUse.resetType===1;
+  const abilityId=f.name.replace(/[^a-zA-Z]/g,'').substring(0,8);
+  let h='';
+  for(let i=0;i<max;i++){const filled=i>=used;h+=`<div class="pip${isSR?' sr':''}${filled?' f':''}" data-ability="${abilityId}" onclick="event.stopPropagation();tP(this)"></div>`;}
+  return h;
+}
+function buildMeta(f){
+  const m=[];if(f.dice)m.push(f.dice);if(f.range)m.push(f.range);if(f.aoe)m.push(f.aoe);if(f.saveDC)m.push(f.saveDC);return m.join(' · ');
+}
+function featureIcon(f){
+  return f.name==='CR: Heavenly Wings'?'🪽':f.name==='CR: Inner Radiance'?'☀️':f.name==='CR: Necrotic Shroud'?'💀':f.name==='Frenzy Attack'?'🪓':f.name==='Rage'?'🔥':f.name==='Reckless Attack'?'⚡':f.dice?'⚔️':'✦';
+}
+function featureGroupCard(f){
+  const pips=buildPips(f);
+  const abilityId=f.name.replace(/[^a-zA-Z]/g,'').substring(0,8);
+  const isExhausted=f.limitedUse&&f.limitedUse.used>=f.limitedUse.max;
+  let html=`<div class="feat-group wide${isExhausted?' exhausted':''}" data-group-ability="${abilityId}">`;
+  html+=`<div class="fg-parent"><span class="ico">${featureIcon(f)}</span><span class="n">${f.name}</span>${pips?'<div class="pips">'+pips+'</div>':''}`;
+  if(f.limitedUse)html+=`<span class="m" style="margin-left:4px;font-size:10px">${f.limitedUse.resetType===1?'SR':'LR'}</span>`;
+  html+=`</div>`;
+  html+=`<div class="fg-children">`;
+  f._children.forEach(ch=>{
+    const meta=buildMeta(ch);
+    const icon=featureIcon(ch);
+    // Clean up child names: remove "Maneuver: " prefix, "Channel Divinity: " prefix
+    const displayName=ch.name.replace(/^Maneuver:\s*/,'').replace(/^Channel Divinity:\s*/,'');
+    html+=`<div class="a" data-feat-name="${ch.name}" onclick="useFeature(this)" style="cursor:pointer;flex:1;min-width:120px">
+      <div class="top"><span class="ico">${icon}</span><span class="n">${displayName}</span></div>
+      ${meta?`<div class="bot"><span class="m">${meta}</span></div>`:''}
+      <div class="tt"><h3>${ch.name}</h3><div class="mt">${ch.activation||f.activation}</div><p>${(()=>resolveTemplates((ch.snippet||ch.description),window._char,{scaleValue:ch.scaleValue}).substring(0,400))()}</p></div>
+    </div>`;
+  });
+  html+=`</div></div>`;
+  return html;
 }
 
 function getMasteryDesc(m){
@@ -1550,35 +1645,30 @@ function useFeature(card){
     }
   }
 
-  // Maneuvers (Battle Master) — spend superiority die
-  if(name.includes('Maneuver:')){
-    // Find and spend a superiority die pip
-    const supPips=[...document.querySelectorAll('.pip[data-ability="Superior"].f,.pip[data-ability="Superio"].f')];
-    if(supPips.length){
-      supPips[supPips.length-1].classList.remove('f');
-      const supRolls=rollDice(1,8); // superiority die
-      parts.push(`<span class="cl-dmg">+🎯${supRolls[0]}</span>`);
-      parts.push(`<span class="cl-detail">[d8]</span>`);
+  // Child features — spend parent's pips
+  if(f._parentName){
+    const parentAbilityId=f._parentName.replace(/[^a-zA-Z]/g,'').substring(0,8);
+    const parentPips=[...document.querySelectorAll(`.pip[data-ability="${parentAbilityId}"].f`)];
+    if(parentPips.length){
+      parentPips[parentPips.length-1].classList.remove('f');
     }else{
-      parts.push(`<span class="cl-save">⚠️ No superiority dice!</span>`);
+      parts.push(`<span class="cl-save">⚠️ No ${f._parentName} uses left!</span>`);
+      logCombat(parts.join(' '));updateExhausted();return;
     }
+  }
+
+  // Maneuvers (Battle Master) — roll superiority die
+  if(name.startsWith('Maneuver')){
+    const supDie=c?.superiorityDie||8;
+    const supRolls=rollDice(1,supDie);
+    parts.push(`<span class="cl-dmg">+🎯${supRolls[0]}</span>`);
+    parts.push(`<span class="cl-detail">[d${supDie}]</span>`);
     updateExhausted();
   }
 
-  // Celestial Revelation sub-options — spend parent's pip and add effect
+  // Celestial Revelation sub-options — add effect
   if(name.startsWith('CR: ')){
     const profBonus=c?._profBonus||2;
-    // Spend the Celestial Revelation pip
-    const crPips=[...document.querySelectorAll('.pip[data-ability]')].filter(p=>{
-      const card=p.closest('.a');
-      return card&&card.dataset.featName==='Celestial Revelation';
-    });
-    const filledPip=crPips.filter(p=>p.classList.contains('f')).pop();
-    if(filledPip){
-      filledPip.classList.remove('f');
-    }else{
-      parts.push(`<span class="cl-save">⚠️ Already used Celestial Revelation this rest!</span>`);
-    }
     if(name==='CR: Heavenly Wings'){
       parts.push(`<span class="cl-note">🪽 Heavenly Wings — fly ${c?.speed||30}ft, +${profBonus} radiant/turn</span>`);
       addEffect('Heavenly Wings','🪽',false,'1 min');
@@ -2182,7 +2272,11 @@ function updateExhausted(){
   const abilities={};
   document.querySelectorAll('.pip[data-ability]').forEach(pip=>{
     const id=pip.dataset.ability;
-    if(!abilities[id])abilities[id]={any:false,card:pip.closest('.a')};
+    // Find parent: could be .a (standalone) or .feat-group (grouped)
+    const group=pip.closest('.feat-group');
+    const card=group||pip.closest('.a');
+    if(!card)return;
+    if(!abilities[id])abilities[id]={any:false,card};
     if(pip.classList.contains('f'))abilities[id].any=true;
   });
   for(const id in abilities){
