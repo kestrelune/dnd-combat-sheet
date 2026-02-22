@@ -764,6 +764,43 @@ async function parseChar(c){
 
   const raceName=c.race?.fullName||c.race?.baseName||'Unknown';
 
+  // Proficiencies (armor, weapons, tools, languages)
+  const proficiencies={armor:[],weapons:[],tools:[],languages:[]};
+  const profSeen=new Set();
+  allMods.forEach(m=>{
+    if(m.type==='proficiency'){
+      const sub=m.subType||'';
+      const name=m.friendlySubtypeName||sub;
+      if(profSeen.has(name))return;
+      profSeen.add(name);
+      if(sub.includes('armor')||sub==='shields')proficiencies.armor.push(name);
+      else if(sub.includes('weapon'))proficiencies.weapons.push(name);
+      else if(sub.includes('kit')||sub.includes('tools')||sub.includes('set')||sub.includes('supplies')||sub.includes('vehicles'))proficiencies.tools.push(name);
+      // Skip skills and saves (shown elsewhere)
+    }
+    if(m.type==='language'){
+      const name=m.friendlySubtypeName||m.subType||'';
+      if(name&&!profSeen.has(name)){profSeen.add(name);proficiencies.languages.push(name)}
+    }
+  });
+
+  // Full inventory
+  const inventory=[];
+  (c.inventory||[]).forEach(item=>{
+    const def=item.definition;
+    if(!def)return;
+    inventory.push({
+      name:def.name,
+      equipped:!!item.equipped,
+      quantity:item.quantity||1,
+      type:def.filterType||'Other',
+      weight:def.weight||0,
+      magic:!!def.magic,
+      description:stripHTML(def.description||'').substring(0,200),
+      rarity:def.rarity||'',
+    });
+  });
+
   return{
     name:c.name||'Character',
     race:raceName,
@@ -779,7 +816,7 @@ async function parseChar(c){
     kiPoints,martialArtsDie,layOnHandsPool,arcaneRecoverySlots,
     sorceryPoints,metamagicOptions,
     spellDC,spellAtk,spellMod,
-    slotsByLevel,spells,features,trackedItems,
+    slotsByLevel,spells,features,trackedItems,proficiencies,inventory,
     // For template resolution
     _stats:stats,_profBonus:profBonus,_level:level,_scaleValues:scaleValues,
   };
@@ -1237,6 +1274,39 @@ async function buildSheet(rawChar){
         </div>`;
       }
     });
+    html+=`</div>`;
+  }
+
+  // Proficiencies
+  const profParts=[];
+  if(c.proficiencies.armor.length)profParts.push(`<b>Armor:</b> ${c.proficiencies.armor.join(', ')}`);
+  if(c.proficiencies.weapons.length)profParts.push(`<b>Weapons:</b> ${c.proficiencies.weapons.join(', ')}`);
+  if(c.proficiencies.tools.length)profParts.push(`<b>Tools:</b> ${c.proficiencies.tools.join(', ')}`);
+  if(c.proficiencies.languages.length)profParts.push(`<b>Lang:</b> ${c.proficiencies.languages.join(', ')}`);
+  if(profParts.length){
+    html+=`<div class="sh" style="margin-top:6px">📜 Proficiencies</div>`;
+    html+=`<div class="skills-line">${profParts.join(' · ')}</div>`;
+  }
+
+  // Inventory
+  if(c.inventory.length){
+    const equipped=c.inventory.filter(i=>i.equipped&&i.type!=='Weapon'&&i.type!=='Armor');
+    const carried=c.inventory.filter(i=>!i.equipped);
+    const totalWeight=c.inventory.reduce((s,i)=>s+i.weight*i.quantity,0);
+    html+=`<div class="sh" style="margin-top:6px">🎒 Inventory <span style="font-weight:400;color:var(--dim)">(${totalWeight.toFixed(1)}lb)</span></div>`;
+    html+=`<div style="font-size:12px;color:var(--txt);line-height:1.8">`;
+    if(equipped.length){
+      html+=`<div style="color:var(--dim);font-size:10px;margin-bottom:2px">EQUIPPED</div>`;
+      equipped.forEach(i=>{
+        html+=`<div>${i.magic?'✨ ':''}${i.name}${i.quantity>1?' ×'+i.quantity:''}</div>`;
+      });
+    }
+    if(carried.length){
+      html+=`<div style="color:var(--dim);font-size:10px;margin-top:4px;margin-bottom:2px">CARRIED</div>`;
+      carried.forEach(i=>{
+        html+=`<div style="color:var(--dim)">${i.magic?'✨ ':''}${i.name}${i.quantity>1?' ×'+i.quantity:''} <span style="font-size:10px">${i.weight?i.weight+'lb':''}</span></div>`;
+      });
+    }
     html+=`</div>`;
   }
 
