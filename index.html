@@ -1872,10 +1872,10 @@ function attackWeapon(card){
       // Weapon Mastery effects on hit
       if(w.mastery){
         const m=w.mastery;
-        if(m==='sap')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Sap: target has DISADVANTAGE on next attack</span>`);
+        if(m==='sap'){parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Sap: target has DISADVANTAGE on next attack</span>`);addEffect('Sap ('+w.name+')','⚔️',false,'1 turn','Target has disadvantage on its next attack roll.');}
         if(m==='vex'){parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Vex: ADV on next attack vs target</span>`);addEffect('Vex ('+w.name+')','⚔️',false,'1 turn','Advantage on your next attack against this target before end of your next turn.');}
         if(m==='push')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Push: target pushed 10ft</span>`);
-        if(m==='slow')parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Slow: target speed −10ft</span>`);
+        if(m==='slow'){parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Slow: target speed −10ft</span>`);addEffect('Slow ('+w.name+')','⚔️',false,'1 turn','Target\'s speed reduced by 10ft until start of your next turn.');}
         if(m==='topple'){
           const conSave=8+(c?._profBonus||2)+(c?._stats?.[0]?.mod||0);
           parts.push(`<span class="cl-note" style="color:#cc88ff">⚔️ Topple: target CON save DC ${conSave} or prone</span>`);
