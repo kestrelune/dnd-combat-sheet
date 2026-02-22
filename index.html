@@ -476,6 +476,24 @@ async function parseChar(c){
 
   // Spells
   const spells={cantrips:[],leveled:[]};
+  // Build item charge map: componentId → {name, maxUses, used, chargeCost}
+  const itemChargeMap={};
+  (c.inventory||[]).forEach(item=>{
+    const defn=item.definition||{};
+    const lu=item.limitedUse;
+    if(lu&&lu.maxUses>0){
+      itemChargeMap[defn.id]={itemName:defn.name,maxUses:lu.maxUses,used:lu.numberUsed||0};
+    }
+  });
+  // Tag item spells with charge cost
+  (c.spells?.item||[]).forEach(sp=>{
+    const cid=sp.componentId;
+    if(cid&&itemChargeMap[cid]){
+      sp._itemCharges=itemChargeMap[cid];
+      sp._chargeCost=sp.limitedUse?.minNumberConsumed||1;
+    }
+  });
+
   const allSpells=[...(c.spells?.race||[]),...(c.spells?.class||[]),...(c.classSpells?.[0]?.spells||[]),...(c.spells?.feat||[]),...(c.spells?.item||[])];
   // Dedup by name
   const seen=new Set();
@@ -518,6 +536,8 @@ async function parseChar(c){
       spellMods,
       healDice,
       effectNotes,
+      itemCharges:s._itemCharges||null,
+      chargeCost:s._chargeCost||0,
     };
     if(def.level===0)spells.cantrips.push(spell);
     else if(spell.prepared)spells.leveled.push(spell);
@@ -1468,7 +1488,7 @@ function spellCard(sp,c){
 
   return `<div class="a${isCantrip?' cantrip':' castable'}" data-spell-name="${sp.name}" ${isCantrip?`onclick="castCantrip(this)"`:`data-min-lvl="${sp.level}" onclick="castSpell(this)"`}>
     <div class="top"><span class="ico">${ico}</span><span class="n">${sp.name}</span></div>
-    <div class="bot"><span class="m">${meta.join(' · ')}</span>${sp.concentration?'<span class="conc">CONC</span>':''}${sp.alwaysPrepared?'<span class="slot" style="background:#553355;color:#cc88ff">DOMAIN</span>':''}</div>
+    <div class="bot"><span class="m">${meta.join(' · ')}</span>${sp.concentration?'<span class="conc">CONC</span>':''}${sp.alwaysPrepared?'<span class="slot" style="background:#553355;color:#cc88ff">DOMAIN</span>':''}${sp.itemCharges?`<span class="slot" style="background:#335533;color:#88cc88">ITEM${sp.chargeCost>1?' ('+sp.chargeCost+')':''}</span>`:''}</div>
     <div class="tt">${ttParts.join('')}</div>
     ${isCantrip?'':`<div class="lvl-pick"><span class="lp-label">Cast at:</span>${lvlBtns}</div>`}
   </div>`;
@@ -1612,6 +1632,42 @@ function rl(s,c,m){
 
 let openPicker=null;
 function castSpell(card){
+  // Item spells: cast directly using item charges (no slot picker)
+  const spellName=card.dataset.spellName;
+  const sp=window._spellData?.[spellName];
+  if(sp?.itemCharges){
+    const itemName=sp.itemCharges.itemName;
+    const cost=sp.chargeCost||1;
+    // Find item counter in Items & Charges
+    const allCounters=[...document.querySelectorAll('.item-counter')];
+    const counter=allCounters.find(c=>{
+      const itemCard=c.closest('.a');
+      return itemCard&&itemCard.textContent.includes(itemName);
+    });
+    // Also try pips
+    const allPips=[...document.querySelectorAll('.pip')].filter(p=>{
+      const itemCard=p.closest('.a');
+      return itemCard&&itemCard.textContent.includes(itemName);
+    });
+    const filledPips=allPips.filter(p=>p.classList.contains('f'));
+    
+    if(counter){
+      let v=parseInt(counter.textContent);
+      if(v>=cost){counter.textContent=v-cost;}
+      else{logCombat(`<span class="cl-icon">🎒</span> <span class="cl-name">${spellName}</span> <span class="cl-save">⚠️ ${itemName}: not enough charges! (need ${cost}, have ${v})</span>`);return;}
+    }else if(filledPips.length>=cost){
+      for(let i=0;i<cost;i++){const p=filledPips[filledPips.length-1-i];if(p)p.classList.remove('f');}
+    }else if(allPips.length>0){
+      logCombat(`<span class="cl-icon">🎒</span> <span class="cl-name">${spellName}</span> <span class="cl-save">⚠️ ${itemName}: not enough charges!</span>`);return;
+    }
+    // Cast it
+    card.classList.add('cast-flash');
+    setTimeout(()=>card.classList.remove('cast-flash'),400);
+    if(sp)autoCast(sp,sp.level);
+    sv();updateExhausted();
+    return;
+  }
+
   const pick=card.querySelector('.lvl-pick');
   if(openPicker&&openPicker!==pick){openPicker.classList.remove('show');openPicker.parentElement.classList.remove('picker-open')}
   pick.classList.toggle('show');
