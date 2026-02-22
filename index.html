@@ -1316,6 +1316,7 @@ async function buildSheet(rawChar){
   if(c.trackedItems.length){
     html+=`<div class="sh" style="margin-top:6px">🎒 Items & Charges</div>`;
     html+=`<div class="card-grid">`;
+    window._itemData=c.trackedItems;
     c.trackedItems.forEach((item,idx)=>{
       const pips=[];
       const isSR=item.resetType===1;
@@ -1327,13 +1328,13 @@ async function buildSheet(rawChar){
       }
       const resetLabel=isSR?'SR':isLR?'LR':'—';
       if(item.maxUses>10){
-        html+=`<div class="a wide">
+        html+=`<div class="a wide" onclick="useItem(${idx})" style="cursor:pointer">
           <div class="top"><span class="ico">🎒</span><span class="n">${item.name}</span><span class="m" style="margin-left:auto">${item.maxUses} uses · ${resetLabel}</span></div>
           <div class="bot"><span class="m">Counter: </span><button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();decCounter(this)">−</button><span class="item-counter" data-max="${item.maxUses}" data-item="${abilityId}">${item.maxUses-item.used}</span><button class="b" style="width:18px;height:18px;font-size:10px" onclick="event.stopPropagation();incCounter(this)">+</button></div>
           <div class="tt"><h3>🎒 ${item.name}</h3><div class="mt">${item.maxUses} uses · Resets: ${resetLabel}</div><p>${item.description.substring(0,300)}</p></div>
         </div>`;
       }else{
-        html+=`<div class="a wide">
+        html+=`<div class="a wide" onclick="useItem(${idx})" style="cursor:pointer">
           <div class="top"><span class="ico">🎒</span><span class="n">${item.name}</span><span class="m" style="margin-left:auto">${resetLabel}</span><div class="pips">${pips.join('')}</div></div>
           <div class="tt"><h3>🎒 ${item.name}</h3><div class="mt">${item.maxUses} uses · Resets: ${isSR?'Short Rest':isLR?'Long Rest':'Manual'}</div><p>${item.description.substring(0,300)}</p></div>
         </div>`;
@@ -1778,9 +1779,20 @@ function useFeature(card){
     sv();
   }
 
-  // Features without dice and no special handling
-  if(!f.dice&&!name.includes('Warding Flare')&&!name.includes('Battle Medic')&&!name.startsWith('CR: ')&&name!=='Frenzy Attack'){
-    parts.push(`<span class="cl-note">✓ Activated!</span>`);
+  // Stone's Endurance — roll d12+CON to reduce damage
+  if(name==="Stone's Endurance"){
+    const conMod=c?.stats?.[2]?.mod||0;
+    const roll=rollDice(1,12)[0];
+    const total=roll+conMod;
+    parts.push(`<span class="cl-dmg" style="color:var(--heal)">🛡️ −${total} damage</span>`);
+    parts.push(`<span class="cl-detail">[d12: ${roll} | +${conMod} CON]</span>`);
+  }
+
+  // Features without dice and no special handling — show snippet
+  if(!f.dice&&!name.includes('Warding Flare')&&!name.includes('Battle Medic')&&!name.startsWith('CR: ')&&name!=='Frenzy Attack'&&name!=="Stone's Endurance"&&!name.startsWith('Maneuver')&&!f._parentName){
+    const snippet=resolveTemplates(f.snippet||f.description||'',c,{scaleValue:f.scaleValue}).substring(0,120);
+    if(snippet)parts.push(`<span class="cl-note">${snippet}</span>`);
+    else parts.push(`<span class="cl-note">✓ Activated!</span>`);
   }
 
   // Detect duration for buff bar
@@ -1991,6 +2003,50 @@ function castCantrip(card){
 }
 
 // ─── AUTO-CAST COMBAT LOG ───
+// Item effects database
+const ITEM_EFFECTS={
+  'Potion of Healing':{heal:{count:2,sides:4,bonus:2}},
+  'Potion of Greater Healing':{heal:{count:4,sides:4,bonus:4}},
+  'Potion of Superior Healing':{heal:{count:8,sides:4,bonus:8}},
+  'Potion of Supreme Healing':{heal:{count:10,sides:4,bonus:20}},
+  'Potion of Heroism':{effect:'Heroism',dur:'1 Hour',tip:'10 temp HP, immune to frightened'},
+  'Potion of Water Breathing':{effect:'Water Breathing',dur:'1 Hour',tip:'Breathe underwater'},
+  'Potion of Invisibility':{effect:'Invisibility',dur:'1 Hour',tip:'Invisible until attack/cast'},
+  'Potion of Speed':{effect:'Haste',dur:'1 Minute',tip:'+2 AC, double speed, ADV DEX saves, extra action'},
+  'Potion of Fire Resistance':{effect:'Fire Resistance',dur:'1 Hour',tip:'Resist fire damage'},
+  'Potion of Flying':{effect:'Flying',dur:'1 Hour',tip:'60ft fly speed'},
+  'Oil of Sharpness':{effect:'Oil of Sharpness',dur:'1 Hour',tip:'+3 to attack and damage rolls'},
+};
+
+function useItem(idx){
+  const item=window._itemData?.[idx];
+  if(!item)return;
+  const name=item.name;
+  const parts=[`<span class="cl-icon">🎒</span>`,`<span class="cl-name">${name}</span>`,`<span class="cl-sep">→</span>`];
+
+  // Check for known item effects
+  const effect=ITEM_EFFECTS[name];
+  if(effect?.heal){
+    const h=effect.heal;
+    const rolls=rollDice(h.count,h.sides);
+    const total=rolls.reduce((a,b)=>a+b,0)+h.bonus;
+    window._hp=Math.min(window._maxHp,window._hp+total);
+    upHP();
+    parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 ${total} HP healed</span>`);
+    parts.push(`<span class="cl-detail">[${h.count}d${h.sides}: ${rolls.join('+')} | +${h.bonus}]</span>`);
+  }else if(effect?.effect){
+    addEffect(effect.effect,'🧪',false,effect.dur,effect.tip);
+    parts.push(`<span class="cl-note">✓ ${effect.tip||effect.effect}</span>`);
+  }else{
+    // Generic: show description snippet
+    const desc=item.description?.substring(0,120)||'Used!';
+    parts.push(`<span class="cl-note">${desc}</span>`);
+  }
+
+  logCombat(parts.join(' '));
+  sv();
+}
+
 function rollCheck(name,mod){
   const d20=rollDice(1,20)[0];
   const total=d20+mod;
