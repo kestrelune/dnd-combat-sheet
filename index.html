@@ -1696,6 +1696,26 @@ function useFeature(card){
     }
   }
 
+  // Auto-spend pip for features with their own limitedUse (Bardic Inspiration, Harness Divine Power, etc.)
+  if(f.limitedUse&&!f._parentName){
+    const abilityId=f.name.replace(/[^a-zA-Z]/g,'').substring(0,8);
+    const pips=[...document.querySelectorAll(`.pip[data-ability="${abilityId}"].f`)];
+    if(pips.length){
+      pips[pips.length-1].classList.remove('f');
+    }else{
+      // Try counter
+      const counter=[...document.querySelectorAll('.item-counter')].find(c=>c.dataset.item===abilityId);
+      if(counter){
+        let v=parseInt(counter.textContent);
+        if(v>0)counter.textContent=--v;
+        else{parts.push(`<span class="cl-save">⚠️ No uses left!</span>`);logCombat(parts.join(' '));updateExhausted();return;}
+      }else{
+        parts.push(`<span class="cl-save">⚠️ No uses left!</span>`);logCombat(parts.join(' '));updateExhausted();return;
+      }
+    }
+    updateExhausted();
+  }
+
   // Maneuvers (Battle Master) — roll superiority die
   if(name.startsWith('Maneuver')){
     const supDie=c?.superiorityDie||8;
@@ -2010,6 +2030,22 @@ function useItem(idx){
   if(!item)return;
   const name=item.name;
   const parts=[`<span class="cl-icon">🎒</span>`,`<span class="cl-name">${name}</span>`,`<span class="cl-sep">→</span>`];
+
+  // Spend a pip or decrement counter
+  const card=document.querySelectorAll('.a')[0]?.closest('.card-grid')?.parentElement;
+  const abilityId='item'+idx;
+  const pips=[...document.querySelectorAll(`.pip[data-ability="${abilityId}"].f`)];
+  if(pips.length){
+    pips[pips.length-1].classList.remove('f');
+    updateExhausted();
+  }else{
+    const counter=[...document.querySelectorAll('.item-counter')].find(c=>c.dataset.item===abilityId);
+    if(counter){
+      let v=parseInt(counter.textContent);
+      if(v>0)counter.textContent=--v;
+      else{logCombat(parts.join(' ')+` <span class="cl-save">⚠️ None left!</span>`);return;}
+    }
+  }
 
   // Look up in loaded ITEM_EFFECTS database (141 SRD items)
   const effect=ITEM_EFFECTS[name];
