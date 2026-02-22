@@ -195,6 +195,8 @@ const ACTIVATION_TYPES={1:'Action',3:'Bonus Action',4:'Reaction',5:'Free',6:'Min
 // ─── SPELL EFFECTS DATABASE (319 SRD spells) ───
 let SPELL_EFFECTS={};
 fetch('spell-effects.json').then(r=>r.json()).then(d=>{SPELL_EFFECTS=d;console.log(`Loaded ${Object.keys(d).length} spell effects`)}).catch(()=>console.warn('spell-effects.json not found, using fallback'));
+let ITEM_EFFECTS={};
+fetch('item-effects.json').then(r=>r.json()).then(d=>{ITEM_EFFECTS=d;console.log(`Loaded ${Object.keys(d).length} item effects`)}).catch(()=>console.warn('item-effects.json not found'));
 
 // ─── CONDITIONS DATABASE (15 SRD conditions) ───
 let CONDITIONS={};
@@ -2003,40 +2005,31 @@ function castCantrip(card){
 }
 
 // ─── AUTO-CAST COMBAT LOG ───
-// Item effects database
-const ITEM_EFFECTS={
-  'Potion of Healing':{heal:{count:2,sides:4,bonus:2}},
-  'Potion of Greater Healing':{heal:{count:4,sides:4,bonus:4}},
-  'Potion of Superior Healing':{heal:{count:8,sides:4,bonus:8}},
-  'Potion of Supreme Healing':{heal:{count:10,sides:4,bonus:20}},
-  'Potion of Heroism':{effect:'Heroism',dur:'1 Hour',tip:'10 temp HP, immune to frightened'},
-  'Potion of Water Breathing':{effect:'Water Breathing',dur:'1 Hour',tip:'Breathe underwater'},
-  'Potion of Invisibility':{effect:'Invisibility',dur:'1 Hour',tip:'Invisible until attack/cast'},
-  'Potion of Speed':{effect:'Haste',dur:'1 Minute',tip:'+2 AC, double speed, ADV DEX saves, extra action'},
-  'Potion of Fire Resistance':{effect:'Fire Resistance',dur:'1 Hour',tip:'Resist fire damage'},
-  'Potion of Flying':{effect:'Flying',dur:'1 Hour',tip:'60ft fly speed'},
-  'Oil of Sharpness':{effect:'Oil of Sharpness',dur:'1 Hour',tip:'+3 to attack and damage rolls'},
-};
-
 function useItem(idx){
   const item=window._itemData?.[idx];
   if(!item)return;
   const name=item.name;
   const parts=[`<span class="cl-icon">🎒</span>`,`<span class="cl-name">${name}</span>`,`<span class="cl-sep">→</span>`];
 
-  // Check for known item effects
+  // Look up in loaded ITEM_EFFECTS database (141 SRD items)
   const effect=ITEM_EFFECTS[name];
   if(effect?.heal){
     const h=effect.heal;
     const rolls=rollDice(h.count,h.sides);
-    const total=rolls.reduce((a,b)=>a+b,0)+h.bonus;
+    const total=rolls.reduce((a,b)=>a+b,0)+(h.bonus||0);
     window._hp=Math.min(window._maxHp,window._hp+total);
     upHP();
     parts.push(`<span class="cl-dmg" style="color:var(--heal)">💚 ${total} HP healed</span>`);
-    parts.push(`<span class="cl-detail">[${h.count}d${h.sides}: ${rolls.join('+')} | +${h.bonus}]</span>`);
+    parts.push(`<span class="cl-detail">[${h.count}d${h.sides}: ${rolls.join('+')}${h.bonus?' | +'+h.bonus:''}]</span>`);
+  }else if(effect?.tmpHp){
+    const val=effect.tmpHp;
+    setTmpHP(val);
+    parts.push(`<span class="cl-dmg" style="color:var(--gold)">🛡️ ${val} temp HP</span>`);
   }else if(effect?.effect){
-    addEffect(effect.effect,'🧪',false,effect.dur,effect.tip);
+    addEffect(effect.effect,'🧪',false,effect.dur||'1 Hour',effect.tip);
     parts.push(`<span class="cl-note">✓ ${effect.tip||effect.effect}</span>`);
+  }else if(effect?.tip){
+    parts.push(`<span class="cl-note">✓ ${effect.tip}</span>`);
   }else{
     // Generic: show description snippet
     const desc=item.description?.substring(0,120)||'Used!';
