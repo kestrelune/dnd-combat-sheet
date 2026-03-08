@@ -597,6 +597,25 @@ async function parseChar(c){
     else features.actions.push(feat);
   });
 
+  // Racial traits → passive features (Darkvision, Dwarven Resilience, etc.)
+  const skipRacial=['Ability Score Increase','Languages','Age','Size','Speed','Tool Proficiency','Dwarven Combat Training','Dwarven Armor Training'];
+  (c.race?.racialTraits||[]).forEach(t=>{
+    const defn=t.definition||{};
+    const name=defn.name||'';
+    if(!name||skipRacial.includes(name))return;
+    const snippet=defn.snippet?stripHTML(defn.snippet):'';
+    const desc=defn.description?stripHTML(defn.description):'';
+    if(!snippet&&!desc)return;
+    features.passive.push({
+      name:name,
+      description:desc,
+      snippet:snippet,
+      activation:'Passive',
+      dice:'',range:'',limitedUse:null,saveDC:'',aoe:'',
+      scaleValue:undefined,
+    });
+  });
+
   // Synthesize Celestial Revelation sub-options (like Channel Divinity sub-actions)
   const crIdx=features.bonus.findIndex(f=>f.name==='Celestial Revelation');
   if(crIdx>=0){
@@ -1053,11 +1072,12 @@ function resolveTemplates(text, charData, context){
       const v=c._profBonus;
       return expr.includes('signed')?(v>=0?'+':'')+v:''+v;
     }
-    // {{scalevalue}} — context-dependent, uses feature name to look up correct scale
-    if(expr==='scalevalue'){
-      if(ctx.scaleValue!==undefined)return''+ctx.scaleValue;
-      // Fallback: try common scale values
-      return''+(c._scaleValues?.['Channel Divinity']||c._scaleValues?.['Second Wind']||c._scaleValues?.['Maneuver Options']||2);
+    // {{scalevalue}}, {{scalevalue#signed}}, {{scalevalue#unsigned}} — context-dependent
+    if(expr==='scalevalue'||expr==='scalevalue#signed'||expr==='scalevalue#unsigned'){
+      let sv=ctx.scaleValue;
+      if(sv===undefined)sv=c._scaleValues?.['Channel Divinity']||c._scaleValues?.['Second Wind']||c._scaleValues?.['Maneuver Options']||2;
+      if(expr==='scalevalue#signed')return(sv>=0?'+':'')+sv;
+      return''+sv;
     }
     // {{classlevel}} or {{classlevel#signed}} or {{classlevel#unsigned}}
     if(expr==='classlevel'||expr==='classlevel#unsigned')return''+c._level;
@@ -1325,12 +1345,19 @@ async function buildSheet(rawChar){
     html+=`</div>`;
   }
 
-  // Passives
+  // Passives (resistances, senses)
   if(c.passives.length){
     html+=`<div class="sh" style="margin-top:4px"><span class="tag t-free">PASSIVE</span> Always On</div><div class="card-grid">`;
     c.passives.forEach(p=>{
       html+=`<div class="a"><div class="top"><span class="ico">${p.icon}</span><span class="n">${p.name}</span></div>${p.detail?`<div class="bot"><span class="m">${p.detail}</span></div>`:''}</div>`;
     });
+    html+=`</div>`;
+  }
+
+  // Racial/Passive features (Darkvision, Dwarven Resilience, Stonecunning, etc.)
+  if(c.features.passive.length){
+    html+=`<div class="sh" style="margin-top:4px"><span class="tag" style="background:#8b6914;color:#fff">RACIAL</span> Traits</div><div class="card-grid">`;
+    c.features.passive.forEach(f=>{html+=featureCard(f)});
     html+=`</div>`;
   }
 
